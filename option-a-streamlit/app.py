@@ -25,6 +25,7 @@ import streamlit as st  # streamlit: turns this file into a web page
 import data  # our database and actions (data.py)
 import engine  # our decision logic (engine.py), used here only for small helpers
 import intake_agent  # citizen reports: classify, validate and prioritise
+import ripple_agent  # read-only cascade analysis; it does not change records
 
 # ---------------------------------------------------------------------
 # 1. SETTINGS
@@ -500,6 +501,131 @@ def _log_field_request(report_id, reviewer):
         st.error(str(exc))
 
 
+def page_ripple():  # PAGE 10: read-only cascade analysis
+    st.title("🌊 Ripple")
+    st.caption("Deterministic scenario analysis of the stored coastal Maharashtra network. "
+               "Recorded facts and simulated consequences are labelled separately. "
+               "A road or facility is described as disrupted only when its stored status says so. "
+               "This page does not change incidents, roads, hospitals, stock, shipments, or the plan, "
+               "and it does not send an alert or dispatch a responder.")
+    names = [z["name"] for z in data.read("SELECT name FROM zones ORDER BY name")]
+    origin = st.selectbox("Origin zone", names, index=names.index("Ratnagiri") if "Ratnagiri" in names else 0)
+    result = ripple_agent.analyse(origin)
+    st.info(result["disclaimer"])
+    c = st.columns(4)
+    c[0].metric("Primary zone", result["primary"]["zone"])
+    c[1].metric("Secondary zones", len(result["secondary"]))
+    c[2].metric("Extended zones", len(result["extended"]))
+    c[3].metric("Plan version read", result["plan_version"])
+    _ripple_map(result)
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Primary impact")
+        st.caption("Recorded facts at the origin.")
+        _ripple_zone_card(result["primary"])
+    with right:
+        st.subheader("Secondary impact")
+        st.caption("One stored zone-hop away. A neighbour is a simulated consequence, not a confirmed impact.")
+        if result["secondary"]:
+            for zone in result["secondary"]:
+                _ripple_zone_card(zone)
+        else:
+            st.info("No secondary zone is connected by a stored zone-to-zone road.")
+    st.subheader("Extended impact")
+    if result["extended"]:
+        st.write(", ".join(zone["zone"] for zone in result["extended"]))
+    else:
+        st.info("No zone is two hops away on the stored zone roads.")
+    st.subheader("Cascade timeline")
+    for stage in result["timeline"]:
+        with st.container(border=True):
+            st.markdown(f"**{stage['stage']}**")
+            st.caption(stage["reason"])
+            for line in stage["lines"]:
+                st.markdown(f"**{line['tag']}.** {line['text']}")
+    st.subheader("Full-network and zone-only bridges")
+    st.caption("Both checks remove a road only in memory. The stored road status is not changed. "
+               "A zone-only bridge can still have an alternate route through a hub.")
+    full_rows = [{"Road": b["id"], "Ends": f"{b['a']} — {b['b']}",
+                  "Unreachable from first end": ", ".join(b["unreachable_from_a"])}
+                 for b in result["bridges"]["full_network"]]
+    zone_rows = [{"Road": b["id"], "Ends": f"{b['a']} — {b['b']}", "Note": b["reason"]} for b in result["bridges"]["zone_graph"]]
+    fcol, zcol = st.columns(2)
+    fcol.markdown("**Full network, including hubs and hospitals**")
+    fcol.dataframe(df(full_rows), use_container_width=True, hide_index=True)
+    zcol.markdown("**Zone names only**")
+    zcol.dataframe(df(zone_rows), use_container_width=True, hide_index=True)
+    for compared in result["bridges"]["comparisons"]:
+        if compared["zone_graph_bridge"] and not compared["full_network_bridge"]:
+            st.markdown(f"**{compared['id']}** · {compared['note']}")
+    st.subheader("Hospital pressure")
+    st.dataframe(df([{"Zone": h["zone"], "Record": h["text"], "ICU": h["icu"], "Oxygen": h["oxygen"]}
+                     for h in result["hospitals"]]), use_container_width=True, hide_index=True)
+    st.subheader("Supply reach")
+    st.caption("Demand comes from the existing supply-need rule. No allocation is created and inventory is not changed. "
+               "A missing stock row is not shown as zero.")
+    for row in result["supply"]:
+        st.markdown(f"**{row['zone']}.** {row['text']}")
+    for hub in result["reach"]:
+        with st.expander(hub["route"]):
+            st.dataframe(df([{"Item": s["item"], "Stock": s["text"]} for s in hub["stock"]]),
+                         use_container_width=True, hide_index=True)
+    st.subheader("Heuristic attention score")
+    st.caption("Score = severity (max 40) + hospital pressure (max 25) + open medical patients (max 20) "
+               "+ full-network connectivity (15, 8, or 0). A missing contribution is not treated as zero, and that zone is not ranked.")
+    ranked = result["recommendations"]["ranked"]
+    if ranked:
+        st.dataframe(df([{"Rank": i + 1, "Zone": r["zone"], "Score": r["score"], "Severity": r["severity"],
+                          "Hospital": r["hospital"], "Medical": r["medical"], "Connectivity": r["connectivity"]}
+                         for i, r in enumerate(ranked)]), use_container_width=True, hide_index=True)
+        choice = st.selectbox("Why this rank", [r["zone"] for r in ranked])
+        chosen = next(r for r in ranked if r["zone"] == choice)
+        for reason in chosen["reasons"]:
+            st.write(reason)
+    else:
+        st.info("No affected zone has every contribution recorded.")
+    if result["recommendations"]["unranked"]:
+        st.markdown("**Not ranked — missing data**")
+        st.dataframe(df([{"Zone": r["zone"], "Missing": ", ".join(r["missing"]), "Hospital record": r["hospital_text"]}
+                         for r in result["recommendations"]["unranked"]]), use_container_width=True, hide_index=True)
+
+
+def _ripple_map(result):
+    roles = {result["primary"]["zone"]: "primary"}
+    roles.update({z["zone"]: "secondary" for z in result["secondary"]})
+    roles.update({z["zone"]: "extended" for z in result["extended"]})
+    colours = {"primary": [185, 28, 28], "secondary": [217, 88, 13], "extended": [201, 154, 6], "other": [156, 163, 175]}
+    points = []
+    for zone in data.read("SELECT name, lat, lon FROM zones"):
+        role = roles.get(zone["name"], "other")
+        points.append({"lat": zone["lat"], "lon": zone["lon"], "color": colours[role],
+                       "radius": 14000 if role == "primary" else 9000, "label": f"{zone['name']}: {role}"})
+    roads = df(data.roads_with_positions())
+    roads["path"] = roads.apply(lambda x: [[x["a_lon"], x["a_lat"]], [x["b_lon"], x["b_lat"]]], axis=1)
+    roads["color"] = roads["status"].map(ROAD_RGB)
+    roads["width"] = roads["status"].map({"OPEN": 3, "SLOW": 6, "BLOCKED": 6})
+    roads["label"] = roads["id"] + ": " + roads["a"] + " to " + roads["b"] + ", " + roads["status"]
+    st.pydeck_chart(pdk.Deck(layers=[
+        pdk.Layer("PathLayer", roads, get_path="path", get_color="color", get_width="width", width_units="pixels", pickable=True),
+        pdk.Layer("ScatterplotLayer", df(points), get_position="[lon, lat]", get_fill_color="color", get_radius="radius",
+                  opacity=0.8, pickable=True),
+    ], initial_view_state=pdk.ViewState(latitude=18.2, longitude=73.4, zoom=6.3), tooltip={"text": "{label}"},
+        map_style=None), height=420)
+    st.caption("Red: primary zone. Orange: secondary. Yellow: extended. Grey: outside this ring. "
+               "Roads use the stored status: grey open, orange slow, red blocked.")
+
+
+def _ripple_zone_card(zone):
+    risk = zone["risk"]
+    if risk is None:
+        reading = "No risk reading recorded."
+    else:
+        reading = f"Recorded reading: {risk['disaster_type']} probability {float(risk['probability']):.2f}."
+    st.markdown(f"**{zone['zone']}** · {reading} {zone['hospital']['text']}.")
+    open_roads = ", ".join(f"{r['id']} {r['status']}" for r in zone["roads"]) or "No road recorded"
+    st.caption(open_roads)
+
+
 def sidebar_demos():  # demo buttons
     st.sidebar.divider()  # line
     st.sidebar.subheader("🎬 Demo controls")  # heading
@@ -529,6 +655,7 @@ PAGES = {  # menu label -> page function
     "Supply Tracking": page_tracking,
     "Field Requests": page_requests,
     "Intake & Triage": page_intake,
+    "Ripple": page_ripple,
     "Scenario Tests": page_scenarios,
 }
 st.sidebar.title("🚨 Command Center")  # sidebar title
