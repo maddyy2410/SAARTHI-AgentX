@@ -1,0 +1,5 @@
+fastapi>=0.110
+uvicorn[standard]
+sqlalchemy>=2.0
+psycopg[binary]
+ortools>=9.10
