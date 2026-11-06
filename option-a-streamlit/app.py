@@ -26,6 +26,7 @@ import data  # our database and actions (data.py)
 import engine  # our decision logic (engine.py), used here only for small helpers
 import intake_agent  # citizen reports: classify, validate and prioritise
 import ripple_agent  # read-only cascade analysis; it does not change records
+import whatif_agent  # hypothetical scenarios on an in-memory copy; it does not write
 
 # ---------------------------------------------------------------------
 # 1. SETTINGS
@@ -341,6 +342,9 @@ def page_requests():  # PAGE 7: SOS from the field
 
 def page_scenarios():  # PAGE 8: the scenario tests from our notes
     st.title("🧪 Scenario tests")  # heading
+    st.warning("LIVE DEMO DATABASE MODIFICATION. Scenarios A–E can change actual demo database records, "
+               "including roads, hospital beds, stock, risk readings, incidents, alerts, and the stored plan. "
+               "This is separate from What-If, which does not write to the database.")
     st.caption("Run a scenario and the system re-plans by itself. The checks confirm the new plan is safe. "
                "Scenarios add up: run A to start fresh.")  # explanation
     cols = st.columns(len(data.SCENARIOS))  # one card per scenario
@@ -626,6 +630,163 @@ def _ripple_zone_card(zone):
     st.caption(open_roads)
 
 
+def page_whatif():  # PAGE 11: hypothetical scenarios, never written to the database
+    st.title("🔀 What-If")
+    st.warning(whatif_agent.DISCLAIMER)
+    st.caption("Each run reads the database again and applies the hypothetical list to a new in-memory copy. "
+               "Reset clears that list. It does not run Scenario A and it does not rewrite the demo database.")
+    modifications = st.session_state.setdefault("whatif_mods", [])
+    _whatif_controls(modifications)
+    if modifications:
+        st.subheader("Hypothetical modifications")
+        for note_index, modification in enumerate(modifications, start=1):
+            st.markdown(f"{note_index}. `{modification['kind']}` · {modification}")
+    else:
+        st.info("No hypothetical changes. The comparison below is the RECORDED baseline.")
+    if st.button("Reset to recorded baseline"):
+        st.session_state["whatif_mods"] = whatif_agent.reset_modifications()
+        st.rerun()
+    try:
+        result = whatif_agent.compare(modifications)
+    except whatif_agent.ScenarioError as exc:
+        st.error(str(exc))
+        return
+    st.caption(f"RECORDED plan version {result['recorded_plan_version']} was read and not replaced.")
+    for note in result["modifications"]:
+        st.markdown(f"**SIMULATED.** {note}")
+    _whatif_maps(result)
+    st.subheader("Routes")
+    changed = result["routes"]
+    if changed:
+        st.dataframe(df([{"From": r["from"], "To": r["to"], "RECORDED minutes": r["recorded_minutes"],
+                          "SIMULATED minutes": r["simulated_minutes"], "RECORDED roads": ", ".join(r["recorded_roads"]),
+                          "SIMULATED roads": ", ".join(r["simulated_roads"])} for r in changed]),
+                     use_container_width=True, hide_index=True)
+    else:
+        st.success("No route minutes changed.")
+    isolated = [row for row in result["isolation"] if row["label"] == "SIMULATED"]
+    st.subheader("Isolated zones and inaccessible facilities")
+    if isolated:
+        for row in isolated:
+            st.markdown(row["text"])
+    else:
+        st.info("This hypothetical list does not newly isolate a zone or cut off a facility that was reachable.")
+    st.subheader("Hospital capacity")
+    st.dataframe(df([{"Hospital": h["name"], "Zone": h["zone"], "RECORDED free beds": h["recorded_free"],
+                      "SIMULATED free beds": h["simulated_free"], "RECORDED occupancy": h["recorded_occupancy"],
+                      "SIMULATED occupancy": h["simulated_occupancy"], "ICU": h["icu"], "Label": h["label"]}
+                     for h in result["hospitals"]]), use_container_width=True, hide_index=True)
+    st.caption(f"RECORDED unplaced patients: {result['patients']['recorded_unplaced']}. "
+               f"SIMULATED unplaced patients: {result['patients']['simulated_unplaced']}. "
+               "No patient record was moved.")
+    if not any(h["zone"] == "Palghar" for h in result["hospitals"]):
+        st.caption("Palghar: no hospital recorded, so hypothetical beds cannot be invented.")
+    st.subheader("Resource availability")
+    st.dataframe(df([{"Hub": s["hub"], "Item": s["item"], "RECORDED qty": s["recorded_qty"],
+                      "SIMULATED qty": s["simulated_qty"], "Label": s["text"]} for s in result["stock"]]),
+                 use_container_width=True, hide_index=True)
+    st.caption(f"SIMULATED supply calculation changed {result['supply']['changed']} route rows. "
+               "No shipment was created and inventory was not reduced in the database.")
+    for shortfall in result["supply"]["simulated_shortfalls"]:
+        st.markdown(f"**SIMULATED shortfall.** {shortfall['zone']}: {shortfall['missing']} {shortfall['item']}. {shortfall['why']}")
+    st.subheader("Zone severity")
+    st.dataframe(df([{"Zone": s["zone"], "RECORDED probability": s["recorded_probability"],
+                      "SIMULATED probability": s["simulated_probability"], "RECORDED score": s["recorded_score"],
+                      "SIMULATED score": s["simulated_score"], "RECORDED level": s["recorded_level"],
+                      "SIMULATED level": s["simulated_level"], "Higher priority": s["higher_priority"],
+                      "Label": s["label"]} for s in result["severity"]]),
+                 use_container_width=True, hide_index=True)
+    st.dataframe(df([{"Road": r["id"], "Ends": f"{r['a']} — {r['b']}", "RECORDED": r["recorded_status"],
+                      "SIMULATED": r["simulated_status"], "RECORDED minutes": r["recorded_minutes"],
+                      "SIMULATED minutes": r["simulated_minutes"], "Meaning": r["meaning"]}
+                     for r in result["roads"]]), use_container_width=True, hide_index=True)
+
+
+def _whatif_controls(modifications):
+    kind = st.selectbox("Add a hypothetical change", ["Road status", "Hospital free beds", "Hub stock", "Zone probability"])
+    if kind == "Road status":
+        roads = data.read("SELECT id, a, b, status FROM roads ORDER BY id")
+        label = st.selectbox("Road", [f"{r['id']}: {r['a']} to {r['b']} (RECORDED {r['status']})" for r in roads])
+        status = st.selectbox("SIMULATED status", ["BLOCKED", "SLOW", "OPEN"])
+        if st.button("Add road change"):
+            _whatif_add(modifications, {"kind": "road", "road_id": label.split(":")[0], "status": status})
+    elif kind == "Hospital free beds":
+        hospitals = data.read("SELECT id, name, total_beds, available_beds FROM hospitals ORDER BY id")
+        label = st.selectbox("Hospital", [f"{h['id']}: {h['name']} (RECORDED {h['available_beds']} of {h['total_beds']} free)" for h in hospitals])
+        chosen = next(h for h in hospitals if label.startswith(f"{h['id']}:"))
+        beds = st.number_input("SIMULATED free beds", min_value=0, max_value=int(chosen["total_beds"]), value=int(chosen["available_beds"]), step=1)
+        if st.button("Add hospital change"):
+            _whatif_add(modifications, {"kind": "beds", "hospital_id": int(chosen["id"]), "available_beds": int(beds)})
+    elif kind == "Hub stock":
+        hubs = data.read("SELECT id, name FROM hubs ORDER BY id")
+        hub_label = st.selectbox("Hub", [f"{h['id']}: {h['name']}" for h in hubs])
+        hub_id = int(hub_label.split(":")[0])
+        rows = data.read("SELECT item, qty FROM inventory WHERE hub_id=:h ORDER BY item", h=hub_id)
+        if not rows:
+            st.info("No stock row recorded at this hub.")
+        else:
+            item_label = st.selectbox("Item", [f"{r['item']} (RECORDED {r['qty']})" for r in rows])
+            item = item_label.split(" (RECORDED ")[0]
+            recorded_qty = int(next(r["qty"] for r in rows if r["item"] == item))
+            qty = st.number_input("SIMULATED quantity", min_value=0, max_value=recorded_qty, value=recorded_qty, step=1)
+            if st.button("Add stock change"):
+                _whatif_add(modifications, {"kind": "stock", "hub_id": hub_id, "item": item, "qty": int(qty)})
+    else:
+        risks = data.read("""SELECT zone, probability FROM risk_logs
+                              WHERE id IN (SELECT MAX(id) FROM risk_logs GROUP BY zone) ORDER BY zone""")
+        if not risks:
+            st.info("No risk reading is recorded.")
+        else:
+            label = st.selectbox("Zone", [f"{r['zone']} (RECORDED probability {float(r['probability']):.2f})" for r in risks])
+            zone = label.split(" (RECORDED")[0]
+            recorded = float(next(r["probability"] for r in risks if r["zone"] == zone))
+            probability = st.number_input("SIMULATED probability", min_value=recorded, max_value=1.0, value=recorded, step=0.01, format="%.2f")
+            if st.button("Add severity change"):
+                _whatif_add(modifications, {"kind": "probability", "zone": zone, "probability": float(probability)})
+
+
+def _whatif_add(modifications, modification):
+    updated = list(modifications) + [modification]
+    try:
+        whatif_agent.compare(updated)
+    except whatif_agent.ScenarioError as exc:
+        st.error(str(exc))
+        return
+    st.session_state["whatif_mods"] = updated
+    st.rerun()
+
+
+def _whatif_maps(result):
+    spots = data.places()
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**RECORDED roads**")
+        _whatif_map(result, spots, "recorded_status", "whatif_recorded_map")
+    with right:
+        st.markdown("**SIMULATED roads**")
+        _whatif_map(result, spots, "simulated_status", "whatif_simulated_map")
+
+
+def _whatif_map(result, spots, status_field, key):
+    lines = []
+    for road in result["roads"]:
+        start, end = spots.get(road["a"]), spots.get(road["b"])
+        if not start or not end:
+            continue
+        status = road[status_field]
+        lines.append({"path": [[start[1], start[0]], [end[1], end[0]]], "color": ROAD_RGB.get(status, [107, 114, 128]),
+                      "width": 3 if status == "OPEN" else 6,
+                      "label": f"{road['id']}: {road['a']} to {road['b']}, {status_field} {status}"})
+    if not lines:
+        st.info("No mapped roads.")
+        return
+    frame = df(lines)
+    st.pydeck_chart(pdk.Deck(layers=[pdk.Layer("PathLayer", frame, get_path="path", get_color="color", get_width="width",
+                                               width_units="pixels", pickable=True)],
+                             initial_view_state=pdk.ViewState(latitude=18.2, longitude=73.4, zoom=6.3),
+                             tooltip={"text": "{label}"}, map_style=None), height=360, key=key)
+
+
 def sidebar_demos():  # demo buttons
     st.sidebar.divider()  # line
     st.sidebar.subheader("🎬 Demo controls")  # heading
@@ -656,6 +817,7 @@ PAGES = {  # menu label -> page function
     "Field Requests": page_requests,
     "Intake & Triage": page_intake,
     "Ripple": page_ripple,
+    "What-If": page_whatif,
     "Scenario Tests": page_scenarios,
 }
 st.sidebar.title("🚨 Command Center")  # sidebar title
