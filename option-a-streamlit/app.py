@@ -24,6 +24,7 @@ import streamlit as st  # streamlit: turns this file into a web page
 
 import data  # our database and actions (data.py)
 import engine  # our decision logic (engine.py), used here only for small helpers
+import intake_agent  # citizen reports: classify, validate and prioritise
 
 # ---------------------------------------------------------------------
 # 1. SETTINGS
@@ -35,7 +36,8 @@ ROAD_RGB = {"OPEN": [107, 114, 128], "SLOW": [217, 88, 13], "BLOCKED": [185, 28,
 SOS_RGB = {"OPEN": [185, 28, 28], "IN_TRANSIT": [217, 88, 13], "RESOLVED": [47, 125, 79]}  # SOS dot colours
 EVENT_ICON = {"ROAD_BLOCKED": "⛔", "ROAD_SLOW": "🐢", "ROAD_REOPENED": "✅", "HOSPITAL_CAPACITY_CHANGED": "🏥",
               "NEW_PATIENTS": "🚑", "RESOURCE_RECEIVED": "📦", "RESOURCE_DEPLETED": "⚠️", "REOPTIMIZED": "🔁",
-              "RISK_UPDATED": "🌀", "TAMPER": "🚨"}  # small symbol per event type in the feed
+              "RISK_UPDATED": "🌀", "TAMPER": "🚨", "INTAKE_SUBMITTED": "📥", "INTAKE_APPROVED": "✅",
+              "INTAKE_REJECTED": "🚫"}  # small symbol per event type in the feed
 
 st.set_page_config(page_title="Disaster Command Center", page_icon="🚨", layout="wide")  # tab title, icon, full width
 
@@ -290,8 +292,18 @@ def page_requests():  # PAGE 7: SOS from the field
     st.title("🆘 Field requests")  # heading
     draw_map(["Hospitals", "Supply hubs", "SOS requests"], height=400, key="rq_map")  # map
     rows = data.read("SELECT * FROM incidents ORDER BY id DESC")  # all requests
+    open_rows = [r for r in rows if r["status"] == "OPEN"]
     open_ids = data.incident_ids(rows, "OPEN")  # empty on a fresh database must not reach selectbox
     transit_ids = data.incident_ids(rows, "IN_TRANSIT")
+    st.subheader("Open requests")
+    st.caption("A request logged from Intake & Triage appears here while its status is OPEN. "
+               "Claim and resolve are unchanged. Nothing on this page dispatches a responder.")
+    if open_rows:
+        st.dataframe(df(open_rows)[["id", "reported_at", "zone", "need_type", "people", "status", "claimed_by"]],
+                     use_container_width=True, hide_index=True)
+    else:
+        st.info("No open requests.")
+    st.subheader("All requests")
     if rows:
         st.dataframe(df(rows)[["id", "reported_at", "zone", "need_type", "people", "status", "claimed_by"]],
                      use_container_width=True, hide_index=True)  # table
@@ -349,6 +361,145 @@ def page_scenarios():  # PAGE 8: the scenario tests from our notes
 # ---------------------------------------------------------------------
 # 4. SIDEBAR: menu, live mode, demo buttons
 # ---------------------------------------------------------------------
+def page_intake():  # PAGE 9: Intake and Triage agent
+    st.title("📥 Intake and triage")
+    st.caption("Rule-based triage of reports already in the demo database and of new practice reports. "
+               "It does not predict a disaster, send an alert, or dispatch a responder. "
+               "A person approves or rejects every report.")
+    if st.session_state.get("intake_notice"):
+        st.success(st.session_state.pop("intake_notice"))
+    if st.session_state.get("intake_error"):
+        st.error(st.session_state.pop("intake_error"))
+    reports = intake_agent.list_reports()
+    pending = [r for r in reports if intake_agent.queue_state(r) == "Pending"]
+    approved_only = [r for r in reports if intake_agent.queue_state(r) == "Approved, not logged"]
+    logged = [r for r in reports if r["sos_logged"]]
+    rejected = [r for r in reports if r["review_status"] == "rejected"]
+    c = st.columns(4)
+    c[0].metric("Pending", len(pending))
+    c[1].metric("Approved, not logged", len(approved_only))
+    c[2].metric("Logged as field requests", len(logged))
+    c[3].metric("Rejected", len(rejected))
+    left, right = st.columns(2)
+    if left.button("Import existing SOS", type="primary"):
+        added = intake_agent.import_open_sos()
+        st.toast(f"Imported {len(added)} existing SOS records" if added else "Existing SOS records are already in the queue")
+        st.rerun()
+    if right.button("Load labelled synthetic examples"):
+        added = intake_agent.load_synthetic_examples()
+        st.toast(f"Loaded {len(added)} synthetic examples" if added else "Synthetic examples are already loaded")
+        st.rerun()
+    if reports:
+        view = st.radio("Show", ["Pending", "Approved, not logged", "Logged", "Rejected", "All"], horizontal=True)
+        if view == "Logged":
+            visible = [r for r in reports if r["sos_logged"]]
+        elif view == "All":
+            visible = reports
+        else:
+            visible = [r for r in reports if intake_agent.queue_state(r) == view]
+        if not visible:
+            st.info(f"No {view.lower()} reports.")
+        else:
+            table = []
+            for r in visible:
+                table.append({"id": r["id"], "record": "Synthetic demo" if r["synthetic"] else "Operator entry",
+                              "queue": intake_agent.queue_state(r), "zone": r["zone"], "classification": r["classification"],
+                              "severity": r["severity"], "urgency": intake_agent.urgency_label(r["source"], r["urgency"]),
+                              "people": r["people"], "priority": r["priority"], "priority_score": r["priority_score"],
+                              "validation_status": r["validation_status"]})
+            st.dataframe(df(table), use_container_width=True, hide_index=True)
+            choice = st.selectbox("Open a report", [f"#{r['id']} · {intake_agent.queue_state(r)} · {r['priority']} · {r['zone'] or 'no zone'}" for r in visible])
+            row = next(r for r in visible if choice.startswith(f"#{r['id']} ·"))
+            st.markdown(f"**{intake_agent.queue_state(row)}** · **{row['priority']}** · score {row['priority_score']} · "
+                        f"{'Synthetic demo' if row['synthetic'] else 'Operator entry'}")
+            st.markdown(f"**Urgency:** {intake_agent.urgency_label(row['source'], row['urgency'])}")
+            parts = df([
+                {"Part": "Urgency", "Contribution": row["score_urgency"]},
+                {"Part": "People affected", "Contribution": row["score_people"]},
+                {"Part": "Severity", "Contribution": row["score_severity"]},
+                {"Part": "Zone vulnerability", "Contribution": row["score_vulnerability"]},
+                {"Part": "Total", "Contribution": row["priority_score"]},
+            ])
+            st.dataframe(parts, use_container_width=True, hide_index=True)
+            st.caption("This is a rule-based prioritisation score, not an AI prediction or a disaster forecast.")
+            st.write(row["priority_reason"])
+            if row["validation_notes"]:
+                st.warning(row["validation_notes"])
+            else:
+                st.success("No validation warnings.")
+            reviewer = st.text_input("Reviewer", "Duty officer", key=f"reviewer_{row['id']}")
+            if row["sos_logged"] and row["incident_id"]:
+                st.success(f"Logged as field request #{row['incident_id']}. It is listed under Open requests on Field Requests "
+                           "until someone claims it. No alert was sent and no responder was dispatched.")
+            elif row["review_status"] == "pending":
+                a, b, c3 = st.columns(3)
+                if a.button("Approve", type="primary"):
+                    act(intake_agent.review_report, int(row["id"]), "approved", reviewer, ok=f"Report #{row['id']} approved. It is not a field request yet.")
+                if b.button("Reject"):
+                    act(intake_agent.review_report, int(row["id"]), "rejected", reviewer, ok=f"Report #{row['id']} rejected. Nothing was dispatched.")
+                if c3.button("Approve and log SOS"):
+                    _log_field_request(int(row["id"]), reviewer)
+            elif row["review_status"] == "approved":
+                st.warning(f"Approved by {row['reviewed_by'] or 'an operator'}. This report is not on Field Requests yet.")
+                if st.button("Log as field request"):
+                    _log_field_request(int(row["id"]), reviewer)
+            else:
+                st.info(f"Rejected by {row['reviewed_by'] or 'an operator'}. Nothing was dispatched.")
+        mapped = [r for r in reports if r["lat"] is not None and r["lon"] is not None]
+        if mapped:
+            colours = {"CRITICAL": [185, 28, 28], "HIGH": [217, 88, 13], "MEDIUM": [201, 154, 6], "LOW": [47, 125, 79]}
+            points = df(mapped)
+            points["color"] = points["priority"].map(colours)
+            points["label"] = points["priority"] + " " + points["classification"].fillna("") + " #" + points["id"].astype(str)
+            st.pydeck_chart(pdk.Deck(layers=[pdk.Layer("ScatterplotLayer", points, get_position="[lon, lat]",
+                                                       get_fill_color="color", get_radius=6000, pickable=True)],
+                                     initial_view_state=pdk.ViewState(latitude=18.2, longitude=73.4, zoom=6.3),
+                                     tooltip={"text": "{label}"}, map_style=None), height=320)
+    else:
+        st.info("No reports yet. Import the existing SOS records, load the labelled examples, or enter a report below.")
+    with st.expander("Enter a citizen report"):
+        with st.form("intake_report", clear_on_submit=True):
+            zones = ["Unknown"] + [z["name"] for z in data.read("SELECT name FROM zones ORDER BY name")]
+            c1, c2, c3 = st.columns(3)
+            zone = c1.selectbox("Zone", zones)
+            disaster = c2.selectbox("Disaster type", ["Not sure", "Flood", "Heatwave", "Cyclone", "Earthquake", "Fire", "Landslide"])
+            urgency = c3.selectbox("Urgency", ["Not specified", "CRITICAL", "HIGH", "MEDIUM", "LOW"])
+            d1, d2, d3 = st.columns(3)
+            lat = d1.text_input("Latitude", "")
+            lon = d2.text_input("Longitude", "")
+            people = d3.text_input("People affected", "")
+            description = st.text_area("Description", "")
+            st.caption("Urgency is required. Not specified is left missing and is not scored as LOW.")
+            if st.form_submit_button("Triage this report", type="primary"):
+                form_error = intake_agent.citizen_form_error(urgency)
+                if form_error:
+                    st.session_state["intake_error"] = form_error
+                else:
+                    intake_agent.submit({"source": "citizen", "zone": zone, "lat": lat, "lon": lon, "people": people,
+                                         "disaster_type": disaster, "urgency": urgency, "description": description, "synthetic": 0})
+                    st.session_state["intake_notice"] = "Report triaged and added to the pending queue. It is not a field request until you log it."
+                st.rerun()
+
+
+def _log_field_request(report_id, reviewer):
+    """Save one open field request and keep its id on screen after the redraw."""
+    try:
+        saved = intake_agent.approve_and_log_sos(report_id, reviewer)
+        if saved["source"] == "existing_sos":
+            st.session_state["intake_notice"] = (
+                f"Field request #{saved['incident_id']} is already stored from the original SOS. "
+                "No second request was created. Open Field Requests and look under Open requests."
+            )
+        else:
+            st.session_state["intake_notice"] = (
+                f"Field request #{saved['incident_id']} was stored as OPEN for {saved['zone']}. "
+                "Open Field Requests and look under Open requests. No alert was sent and no responder was dispatched."
+            )
+        st.rerun()
+    except data.ActionError as exc:
+        st.error(str(exc))
+
+
 def sidebar_demos():  # demo buttons
     st.sidebar.divider()  # line
     st.sidebar.subheader("🎬 Demo controls")  # heading
@@ -377,6 +528,7 @@ PAGES = {  # menu label -> page function
     "Roads & Hospitals": page_network,
     "Supply Tracking": page_tracking,
     "Field Requests": page_requests,
+    "Intake & Triage": page_intake,
     "Scenario Tests": page_scenarios,
 }
 st.sidebar.title("🚨 Command Center")  # sidebar title

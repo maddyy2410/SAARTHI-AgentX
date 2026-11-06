@@ -263,11 +263,12 @@ def add_alert(zone, dtype, severity_word, eta, radius):  # queue an alert for th
     event("ALERT_QUEUED", f"{severity_word} {dtype} alert queued for {zone} (impact in {eta}h)", do_replan=False)
 
 
-def add_incident(zone, need, people):  # new SOS near the zone centre
+def add_incident(zone, need, people):  # new SOS near the zone centre, returned as its new id
     lat, lon = demo.zone_position(zone)
-    write("""INSERT INTO incidents(reported_at, lat, lon, zone, need_type, people, status)
+    incident_id = write("""INSERT INTO incidents(reported_at, lat, lon, zone, need_type, people, status)
              VALUES (:t, :la, :lo, :z, :n, :p, 'OPEN')""", t=now(), la=lat + 0.03, lo=lon + 0.03, z=zone, n=need, p=people)
     event("NEW_PATIENTS" if need == "Medical" else "NEW_SOS", f"New {need} SOS in {zone} ({people} people)")
+    return incident_id
 
 
 def claim_incident(incident_id, team):  # NGO claims a request
@@ -477,10 +478,14 @@ def seed_demo_data():  # fill an empty database from demo_data.py
 def init_db():  # create tables; add demo data if empty
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(SCHEMA)
+    from intake_agent import INTAKE_SCHEMA  # new table only; existing tables are not dropped
+    conn.executescript(INTAKE_SCHEMA)
     conn.commit()
     conn.close()
     if read("SELECT COUNT(*) AS n FROM zones")[0]["n"] == 0:
         seed_demo_data()
+    from intake_agent import ensure_schema  # add score columns on a database that already has reports
+    ensure_schema()
 
 
 def reset_db():  # delete the file and start again
