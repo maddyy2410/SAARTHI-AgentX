@@ -27,6 +27,7 @@ import engine  # our decision logic (engine.py), used here only for small helper
 import intake_agent  # citizen reports: classify, validate and prioritise
 import ripple_agent  # read-only cascade analysis; it does not change records
 import whatif_agent  # hypothetical scenarios on an in-memory copy; it does not write
+import plan_challenger_agent  # read-only review of the stored plan; it does not change records
 
 # ---------------------------------------------------------------------
 # 1. SETTINGS
@@ -803,6 +804,39 @@ def sidebar_demos():  # demo buttons
         st.rerun()  # redraw
 
 
+def page_plan_challenger():  # read-only review of the stored plan
+    st.title("⚖️ Plan Challenger")
+    st.warning(plan_challenger_agent.DISCLAIMER)  # stays on the page
+    result = plan_challenger_agent.review()  # reads the current plan; nothing is stored
+    st.caption(f"RECORDED plan version {result['plan_version']}. Reviewed at {result['reviewed_at']}.")
+    counts = result["counts"]
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Confirmed", counts["confirmed"])
+    c2.metric("Potential", counts["potential"])
+    c3.metric("Missing data", counts["missing"])
+    findings = result["findings"]
+    if not findings:
+        st.success("No findings. The stored plan did not break a recorded limit in this review.")
+        return
+    labels = [("confirmed", "Confirmed violations"), ("potential", "Potential improvements"), ("missing", "Missing data")]
+    for status, title in labels:
+        rows = [row for row in findings if row["status"] == status]
+        st.subheader(title)
+        if not rows:
+            st.caption("None.")
+            continue
+        table = []
+        for row in rows:
+            evidence = row["evidence"]
+            table.append({"risk": row["risk"], "area": row["area"], "why": row["why"],
+                          "zone": evidence.get("zone"), "hospital": evidence.get("hospital"),
+                          "hospital_id": evidence.get("hospital_id"), "hub": evidence.get("hub"),
+                          "hub_id": evidence.get("hub_id"), "road": evidence.get("road"),
+                          "incident_id": evidence.get("incident_id"), "item": evidence.get("item"),
+                          "recommendation": row["recommendation"]})
+        st.dataframe(pd.DataFrame(table), use_container_width=True, hide_index=True)
+
+
 # ---------------------------------------------------------------------
 # 5. MAIN: runs every time the page loads or something is clicked
 # ---------------------------------------------------------------------
@@ -818,6 +852,7 @@ PAGES = {  # menu label -> page function
     "Intake & Triage": page_intake,
     "Ripple": page_ripple,
     "What-If": page_whatif,
+    "Plan Challenger": page_plan_challenger,
     "Scenario Tests": page_scenarios,
 }
 st.sidebar.title("🚨 Command Center")  # sidebar title
