@@ -28,6 +28,7 @@ import intake_agent  # citizen reports: classify, validate and prioritise
 import ripple_agent  # read-only cascade analysis; it does not change records
 import whatif_agent  # hypothetical scenarios on an in-memory copy; it does not write
 import plan_challenger_agent  # read-only review of the stored plan; it does not change records
+import coordinator_agent  # read-only brief across the four agents; it does not change records
 
 # ---------------------------------------------------------------------
 # 1. SETTINGS
@@ -804,6 +805,176 @@ def sidebar_demos():  # demo buttons
         st.rerun()  # redraw
 
 
+def page_coordinator():  # read-only brief; nothing on this page is stored
+    st.title("🧭 Coordinator")
+    st.warning(coordinator_agent.DISCLAIMER)
+    zones = [row["name"] for row in data.read("SELECT name FROM zones ORDER BY name")]
+    origin_choice = st.selectbox("Recorded zone", ["No zone selected"] + zones, key="coord_origin")
+    st.caption("A report typed here is passed to the brief in memory. It is not stored and it is not logged as a field request.")
+    description = st.text_area("Report description", key="coord_description")
+    people = st.text_input("People affected", key="coord_people")
+    urgency = st.selectbox("Urgency", ["Not provided", "CRITICAL", "HIGH", "MEDIUM", "LOW"], key="coord_urgency")
+    disaster_type = st.text_input("Stated disaster type", key="coord_disaster")
+    report = {}
+    if description.strip():
+        report["description"] = description.strip()
+    if people.strip():
+        report["people"] = people.strip()
+    if urgency != "Not provided":
+        report["urgency"] = urgency
+    if disaster_type.strip():
+        report["disaster_type"] = disaster_type.strip()
+    if origin_choice != "No zone selected":
+        report["zone"] = origin_choice
+    try:
+        result = coordinator_agent.brief(report or None, None if origin_choice == "No zone selected" else origin_choice)
+    except Exception as exc:
+        st.error(f"The brief could not be built: {exc}")
+        return
+    version = result.get("plan_version")
+    version_text = "not available" if version is None else str(version)
+    st.caption(f"RECORDED plan version {version_text}. Brief at {result.get('reviewed_at') or 'not available'}.")
+    _coordinator_findings(result)
+    _coordinator_intake(result["agents"]["intake"])
+    _coordinator_ripple(result["agents"]["ripple"])
+    _coordinator_challenger(result["agents"]["plan_challenger"])
+    _coordinator_whatif(result["agents"]["whatif"])
+
+
+def _coordinator_findings(result):
+    findings = result.get("findings") or []
+    labels = [("confirmed", "Confirmed"), ("potential", "Potential"), ("missing", "Missing")]
+    for kind, title in labels:
+        rows = [row for row in findings if row.get("kind") == kind]
+        st.subheader(title)
+        if not rows:
+            st.caption("None.")
+            continue
+        st.dataframe(df([{"source": row.get("source"), "detail": row.get("detail"),
+                          "evidence": _evidence_text(row.get("evidence"))} for row in rows]),
+                     use_container_width=True, hide_index=True)
+    other = [row for row in findings if row.get("kind") not in ("confirmed", "potential", "missing")]
+    st.subheader("Other brief notes")
+    if not other:
+        st.caption("None.")
+        return
+    for row in other:
+        st.markdown(f"**{row.get('source')} · {row.get('kind')}.** {row.get('detail')}")
+        evidence = _evidence_text(row.get("evidence"))
+        if evidence:
+            with st.expander(f"Evidence from {row.get('source')}"):
+                st.write(evidence)
+
+
+def _coordinator_intake(section):
+    st.subheader("Intake & Triage")
+    _agent_status(section)
+    result = section.get("result")
+    if not isinstance(result, dict):
+        return
+    st.caption(f"Priority {result.get('priority')}. Validation {result.get('validation_status')}.")
+    with st.expander("Intake evidence"):
+        st.write(result.get("priority_reason") or "No priority explanation was returned.")
+        for note in result.get("validation_notes") or []:
+            st.markdown(f"- {note}")
+
+
+def _coordinator_ripple(section):
+    st.subheader("Ripple")
+    _agent_status(section)
+    result = section.get("result")
+    if not isinstance(result, dict):
+        return
+    recommendations = result.get("recommendations") or {}
+    ranked = recommendations.get("ranked") or []
+    unranked = recommendations.get("unranked") or []
+    st.caption(f"Origin {result.get('origin')}. Ranked zones {len(ranked)}. Unranked zones {len(unranked)}.")
+    with st.expander("Ripple evidence"):
+        st.info(result.get("disclaimer") or "")
+        if ranked:
+            st.dataframe(df([{"zone": row.get("zone"), "score": row.get("score")} for row in ranked]),
+                         use_container_width=True, hide_index=True)
+        for row in unranked:
+            missing = ", ".join(row.get("missing") or []) or "unspecified"
+            score = "missing" if row.get("score") is None else row.get("score")
+            st.markdown(f"- {row.get('zone')}: attention score {score} ({missing})")
+
+
+def _coordinator_challenger(section):
+    st.subheader("Plan Challenger")
+    _agent_status(section)
+    result = section.get("result")
+    if not isinstance(result, dict):
+        return
+    counts = result.get("counts") or {}
+    st.caption(f"Review of stored plan version {result.get('plan_version')}. "
+               f"Confirmed {counts.get('confirmed', 0)}, potential {counts.get('potential', 0)}, "
+               f"missing {counts.get('missing', 0)}.")
+    with st.expander("Plan Challenger evidence"):
+        findings = result.get("findings") or []
+        if not findings:
+            st.caption("The review returned no findings.")
+            return
+        st.dataframe(df([{"status": row.get("status"), "risk": row.get("risk"), "area": row.get("area"),
+                          "why": row.get("why"), "evidence": _evidence_text(row.get("evidence"))} for row in findings]),
+                     use_container_width=True, hide_index=True)
+
+
+def _coordinator_whatif(section):
+    st.subheader("What-If")
+    st.caption("Hypothetical comparison. Simulated values are not stored.")
+    _agent_status(section)
+    skipped = section.get("skipped") or []
+    with st.expander("Skipped simulations"):
+        if not skipped:
+            st.caption("No confirmed finding was skipped.")
+        for row in skipped:
+            st.markdown(f"- {row.get('reason')}")
+            evidence = _evidence_text(row.get("evidence"))
+            if evidence:
+                st.caption(evidence)
+    result = section.get("result")
+    if not isinstance(result, dict):
+        return
+    st.caption(f"RECORDED plan version {result.get('recorded_plan_version')} was read for this hypothetical comparison.")
+    for note in result.get("modifications") or []:
+        st.markdown(f"**Hypothetical.** {note}")
+    roads = [row for row in result.get("roads") or [] if row.get("recorded_status") != row.get("simulated_status")]
+    hospitals = [row for row in result.get("hospitals") or [] if row.get("recorded_free") != row.get("simulated_free")]
+    stock = [row for row in result.get("stock") or [] if row.get("recorded_qty") != row.get("simulated_qty")]
+    with st.expander("Recorded and simulated values"):
+        if not roads and not hospitals and not stock:
+            st.caption("No recorded road, bed count, or stock quantity differs from the hypothetical copy.")
+        if roads:
+            st.dataframe(df([{"road": row["id"], "RECORDED status": row["recorded_status"],
+                              "SIMULATED status": row["simulated_status"], "meaning": row["meaning"]} for row in roads]),
+                         use_container_width=True, hide_index=True)
+        if hospitals:
+            st.dataframe(df([{"hospital": row["name"], "RECORDED free beds": row["recorded_free"],
+                              "SIMULATED free beds": row["simulated_free"]} for row in hospitals]),
+                         use_container_width=True, hide_index=True)
+        if stock:
+            st.dataframe(df([{"hub": row["hub"], "item": row["item"], "RECORDED quantity": row["recorded_qty"],
+                              "SIMULATED quantity": row["simulated_qty"]} for row in stock]),
+                         use_container_width=True, hide_index=True)
+
+
+def _agent_status(section):
+    status = section.get("status") or "not available"
+    st.caption(f"Source {section.get('source')}. Status {status}.")
+    if section.get("error"):
+        st.error(section["error"])
+    missing = section.get("missing") or []
+    if missing:
+        st.caption("Missing: " + ", ".join(str(item) for item in missing) + ". Missing is not zero.")
+
+
+def _evidence_text(evidence):
+    if not isinstance(evidence, dict) or not evidence:
+        return ""
+    return ", ".join(f"{key} {value}" for key, value in evidence.items())
+
+
 def page_plan_challenger():  # read-only review of the stored plan
     st.title("⚖️ Plan Challenger")
     st.warning(plan_challenger_agent.DISCLAIMER)  # stays on the page
@@ -853,6 +1024,7 @@ PAGES = {  # menu label -> page function
     "Ripple": page_ripple,
     "What-If": page_whatif,
     "Plan Challenger": page_plan_challenger,
+    "Coordinator": page_coordinator,
     "Scenario Tests": page_scenarios,
 }
 st.sidebar.title("🚨 Command Center")  # sidebar title
