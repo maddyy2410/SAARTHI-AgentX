@@ -834,10 +834,12 @@ def page_coordinator():  # read-only brief; nothing on this page is stored
     version = result.get("plan_version")
     version_text = "not available" if version is None else str(version)
     st.caption(f"RECORDED plan version {version_text}. Brief at {result.get('reviewed_at') or 'not available'}.")
+    st.info("Intake priority, the Ripple attention score, and planner severity are three different calculations. "
+            "Do not compare them directly or treat one as a substitute for another.")
     _coordinator_findings(result)
     _coordinator_intake(result["agents"]["intake"])
     _coordinator_ripple(result["agents"]["ripple"])
-    _coordinator_challenger(result["agents"]["plan_challenger"])
+    _coordinator_challenger(result["agents"]["plan_challenger"], result.get("records"))
     _coordinator_whatif(result["agents"]["whatif"])
 
 
@@ -869,10 +871,19 @@ def _coordinator_findings(result):
 def _coordinator_intake(section):
     st.subheader("Intake & Triage")
     _agent_status(section)
+    st.markdown("**Intake priority**")
+    st.caption("This rates the citizen report by urgency and impact, using the Intake agent's own rules. "
+               "It does not measure cascading risk or the stored allocation plan.")
     result = section.get("result")
     if not isinstance(result, dict):
+        st.caption("Intake priority is not available. A missing priority is not zero and is not LOW.")
         return
-    st.caption(f"Priority {result.get('priority')}. Validation {result.get('validation_status')}.")
+    priority = result.get("priority")
+    score = result.get("priority_score")
+    priority_text = "not available" if priority in (None, "") else str(priority)
+    score_text = "not available" if score is None else str(score)
+    st.caption(f"Intake priority {priority_text}. Intake priority score {score_text}. "
+               f"Validation {result.get('validation_status') or 'not available'}.")
     with st.expander("Intake evidence"):
         st.write(result.get("priority_reason") or "No priority explanation was returned.")
         for note in result.get("validation_notes") or []:
@@ -882,27 +893,50 @@ def _coordinator_intake(section):
 def _coordinator_ripple(section):
     st.subheader("Ripple")
     _agent_status(section)
+    st.markdown("**Ripple attention score**")
+    st.caption("This shows which connected zones need attention because of cascading disaster risk. "
+               "Ripple calculates it separately from Intake priority and planner severity. "
+               "A missing attention score is not zero.")
     result = section.get("result")
     if not isinstance(result, dict):
+        st.caption("Ripple attention score is not available. A missing score is not zero.")
         return
     recommendations = result.get("recommendations") or {}
     ranked = recommendations.get("ranked") or []
     unranked = recommendations.get("unranked") or []
-    st.caption(f"Origin {result.get('origin')}. Ranked zones {len(ranked)}. Unranked zones {len(unranked)}.")
+    st.caption(f"Origin {result.get('origin') or 'not available'}. Ranked zones {len(ranked)}. "
+               f"Unranked zones {len(unranked)}.")
     with st.expander("Ripple evidence"):
         st.info(result.get("disclaimer") or "")
         if ranked:
-            st.dataframe(df([{"zone": row.get("zone"), "score": row.get("score")} for row in ranked]),
+            st.dataframe(df([{"zone": row.get("zone"),
+                              "Ripple attention score": "not available" if row.get("score") is None else row.get("score")}
+                             for row in ranked]),
                          use_container_width=True, hide_index=True)
+        elif not unranked:
+            st.caption("No Ripple attention score is available.")
         for row in unranked:
             missing = ", ".join(row.get("missing") or []) or "unspecified"
-            score = "missing" if row.get("score") is None else row.get("score")
-            st.markdown(f"- {row.get('zone')}: attention score {score} ({missing})")
+            score = "not available" if row.get("score") is None else row.get("score")
+            st.markdown(f"- {row.get('zone')}: Ripple attention score {score} ({missing}). A missing score is not zero.")
 
 
-def _coordinator_challenger(section):
+def _coordinator_challenger(section, records):
     st.subheader("Plan Challenger")
     _agent_status(section)
+    st.markdown("**Planner severity**")
+    st.caption("These zone scores are the ones used by the stored resource and allocation plan. "
+               "Plan Challenger reviews the plan against them. "
+               "They are not Intake priority and they are not Ripple attention scores.")
+    situation = records.get("situation") if isinstance(records, dict) else None
+    severity = situation.get("severity") if isinstance(situation, dict) else None
+    if not severity:
+        st.caption("Planner severity is not available. A missing score is not zero.")
+    else:
+        st.dataframe(df([{"Zone": row.get("name") or "not available",
+                          "Planner severity": "not available" if row.get("score") is None else row.get("score"),
+                          "Level": row.get("level") or "not available"} for row in severity]),
+                     use_container_width=True, hide_index=True)
     result = section.get("result")
     if not isinstance(result, dict):
         return

@@ -297,3 +297,93 @@ def test_combined_findings_do_not_change_the_database_or_share_copies():
         assert fingerprint() == before
     finally:
         remove_world(path)
+
+
+def test_confirmed_hospital_evidence_uses_recorded_bed_counts():
+    path = temp_world()
+    try:
+        snapshot, plan = base()
+        hospital = next(row for row in snapshot["hospitals"] if row["id"] == 3)
+        recorded_free = hospital["available_beds"]
+        recorded_total = hospital["total_beds"]
+        incident = next(row for row in snapshot["incidents"] if row["need_type"] == "Medical" and row["people"])
+        plan["patients"] = [patient_row(incident["id"], incident["zone"], int(recorded_free) + 1,
+                                        hospital["name"], 3, ["R17"])]
+        plan["supply"] = []
+        plan["shortfalls"] = []
+        plan["unplaced"] = []
+        result = plan_challenger_agent.review(plan, snapshot)
+        found = has(result["findings"], status="confirmed", risk="critical", area="hospital",
+                    evidence={"hospital_id": 3, "available_beds": recorded_free, "total_beds": recorded_total})
+        assert found
+        assert found["recommendation"] == (
+            "Reduce this assignment or choose a recorded hospital that still has free beds. "
+            "This review did not move any patients.")
+        hospital["total_beds"] = None
+        result = plan_challenger_agent.review(plan, snapshot)
+        found = has(result["findings"], status="confirmed", risk="critical", area="hospital",
+                    evidence={"hospital_id": 3, "available_beds": recorded_free})
+        assert found and "total_beds" not in found["evidence"]
+    finally:
+        remove_world(path)
+
+
+def test_confirmed_stock_evidence_uses_the_recorded_quantity():
+    path = temp_world()
+    try:
+        snapshot, plan = base()
+        plan["patients"] = []
+        plan["unplaced"] = []
+        plan["shortfalls"] = []
+        plan["supply"] = [supply_row("Raigad", "Food kits", 50, 1, "Pune Central Warehouse", ["R5"])]
+        for row in snapshot["inventory"]:
+            if row["hub_id"] == 1 and row["item"] == "Food kits":
+                row["qty"] = 10
+        result = plan_challenger_agent.review(plan, snapshot)
+        found = has(result["findings"], status="confirmed", risk="critical", area="resources",
+                    evidence={"hub_id": 1, "item": "Food kits", "qty": 10})
+        assert found
+        assert "records 10" in found["why"]
+        assert found["recommendation"] == "Lower the allocation or record more stock. This review did not change inventory."
+    finally:
+        remove_world(path)
+
+
+def test_missing_quantities_and_identifiers_are_not_filled_in():
+    path = temp_world()
+    try:
+        snapshot, plan = base()
+        incident = next(row for row in snapshot["incidents"] if row["need_type"] == "Medical" and row["people"])
+        plan["supply"] = []
+        plan["shortfalls"] = []
+        plan["unplaced"] = []
+        plan["patients"] = [patient_row(incident["id"], incident["zone"], 1, "Raigad District Hospital", 3, ["R17"])]
+        for hospital in snapshot["hospitals"]:
+            if hospital["id"] == 3:
+                hospital["available_beds"] = None
+        result = plan_challenger_agent.review(plan, snapshot)
+        missing_beds = has(result["findings"], status="missing", area="hospital", evidence={"hospital_id": 3})
+        assert missing_beds
+        assert "available_beds" not in missing_beds["evidence"]
+        assert "total_beds" not in missing_beds["evidence"]
+        assert missing_beds["evidence"].get("available_beds") != 0
+        for row in snapshot["inventory"]:
+            if row["hub_id"] == 1 and row["item"] == "Food kits":
+                row["qty"] = None
+        plan["patients"] = []
+        plan["supply"] = [supply_row("Raigad", "Food kits", 50, 1, "Pune Central Warehouse", ["R5"])]
+        result = plan_challenger_agent.review(plan, snapshot)
+        missing_stock = has(result["findings"], status="missing", area="supply",
+                            evidence={"hub_id": 1, "item": "Food kits"})
+        assert missing_stock and "qty" not in missing_stock["evidence"]
+        assert not has(result["findings"], status="confirmed", risk="critical", area="resources",
+                       evidence={"hub_id": 1, "item": "Food kits"})
+        plan["patients"] = [patient_row(999999, "Raigad", 1, "Missing Hospital", 999, ["R99"])]
+        plan["supply"] = [supply_row("Nowhere", "Food kits", 1, 999, "Missing Hub", ["R99"])]
+        result = plan_challenger_agent.review(plan, snapshot)
+        missing_hospital = has(result["findings"], status="missing", evidence={"hospital_id": 999})
+        missing_hub = has(result["findings"], status="missing", evidence={"hub_id": 999})
+        assert missing_hospital and "available_beds" not in missing_hospital["evidence"]
+        assert missing_hub and "qty" not in missing_hub["evidence"]
+    finally:
+        remove_world(path)

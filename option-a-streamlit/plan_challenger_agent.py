@@ -165,11 +165,14 @@ def _check_hospitals(patients, unplaced, snapshot, findings):
     for name, count in totals.items():
         free = hospitals[name].get("available_beds")
         if int(count) > int(free):
+            evidence = {"hospital": name, "hospital_id": hospitals[name]["id"], "zone": hospitals[name]["zone"]}
+            _recorded_whole(evidence, "available_beds", free)
+            _recorded_whole(evidence, "total_beds", hospitals[name].get("total_beds"))
             findings.append(_finding(
                 "confirmed", "critical", "hospital",
                 f"{name} is assigned {count} patients and has {free} free beds recorded.",
                 "Reduce this assignment or choose a recorded hospital that still has free beds. This review did not move any patients.",
-                {"hospital": name, "hospital_id": hospitals[name]["id"], "zone": hospitals[name]["zone"]}))
+                evidence))
     for incident_id, count in by_incident.items():
         incident = incidents.get(incident_id)
         if incident is None:
@@ -217,11 +220,13 @@ def _check_stock(supply, snapshot, findings):
     for key, qty in used.items():
         recorded = int(stock[key])
         if qty > recorded:
+            evidence = {"hub_id": key[0], "hub": hubs.get(key[0]), "item": key[1]}
+            _recorded_whole(evidence, "qty", stock[key])
             findings.append(_finding(
                 "confirmed", "critical", "resources",
                 f"The plan sends {qty} {key[1]} from {hubs.get(key[0], key[0])}, which records {recorded}.",
                 "Lower the allocation or record more stock. This review did not change inventory.",
-                {"hub_id": key[0], "hub": hubs.get(key[0]), "item": key[1]}))
+                evidence))
 
 
 def _check_routes(supply, patients, snapshot, findings):
@@ -435,6 +440,13 @@ def _reachable(roads, source):
         for nxt in graph.get(node, []):
             stack.append(nxt)
     return seen
+
+
+def _recorded_whole(evidence, key, value):
+    """Keep a recorded whole number. A missing or non-whole value is left out."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return
+    evidence[key] = value
 
 
 def _missing(findings, area, why, recommendation, evidence):

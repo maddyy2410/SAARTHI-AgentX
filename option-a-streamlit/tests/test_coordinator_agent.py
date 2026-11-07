@@ -3,6 +3,9 @@
 The temporary database is compared before and after. Write attempts must fail the test.
 """
 
+import copy
+import hashlib
+import json
 import os
 import sys
 import tempfile
@@ -343,4 +346,80 @@ def test_whatif_failure_keeps_the_other_agents_and_calls_do_not_share_state():
     finally:
         plan_challenger_agent.review = original_review
         whatif_agent.compare = original_compare
+        remove_world(path)
+
+
+def live_stamp():
+    path = ROOT / "disaster.db"
+    raw = path.read_bytes()
+    return hashlib.sha256(raw).hexdigest(), path.stat().st_mtime, len(raw)
+
+
+def store_stock_overrun(plan, row, overrun_qty):
+    """Save one plan version in the temporary database. The inventory rows stay as recorded."""
+    version = int(plan["version"]) + 1
+    supply = copy.deepcopy(plan["supply"])
+    target = next(item for item in supply if item["key"] == row["key"])
+    target["qty"] = overrun_qty
+    for kind, rows in (("supply", supply), ("patient", plan["patients"])):
+        for item in rows:
+            payload = {key: value for key, value in item.items() if key not in ("key", "changed")}
+            data.write("INSERT INTO plans(version, kind, plan_key, summary, data) VALUES (:v, :k, :key, :s, :d)",
+                       v=version, k=kind, key=item["key"], s="Controlled stock overrun", d=json.dumps(payload))
+    data.write("""INSERT INTO plan_runs VALUES (:v, :t, :tt, :tx, :s, :c, :ck, :sf, :up)""",
+               v=version, t=data.now(), tt="TEST", tx="Controlled stock overrun", s="test", c=1, ck="[]",
+               sf=json.dumps(plan["shortfalls"]), up=json.dumps(plan["unplaced"]))
+
+
+def test_real_stock_finding_sets_the_hypothetical_to_the_recorded_quantity():
+    path = temp_world()
+    try:
+        live_before = live_stamp()
+        plan = data.get_plan()
+        inventory = {(row["hub_id"], row["item"]): row["qty"]
+                     for row in data.read("SELECT hub_id, item, qty FROM inventory")}
+        row = next(item for item in plan["supply"]
+                   if isinstance(inventory.get((item["hub_id"], item["item"])), int)
+                   and not isinstance(inventory.get((item["hub_id"], item["item"])), bool))
+        hub_id, item, recorded_qty = row["hub_id"], row["item"], inventory[(row["hub_id"], row["item"])]
+        store_stock_overrun(plan, row, int(recorded_qty) + 1)
+        snapshot = copy.deepcopy(plan_challenger_agent.load_snapshot())
+        direct = plan_challenger_agent.review()
+        finding = next(found for found in direct["findings"]
+                       if found["status"] == "confirmed" and found["area"] == "resources"
+                       and found["evidence"].get("hub_id") == hub_id and found["evidence"].get("item") == item)
+        assert finding["evidence"]["qty"] == recorded_qty
+        assert finding["risk"] == "critical"
+        before = fingerprint()
+        original_write = data.write
+
+        def explode(*_args, **_kwargs):
+            raise AssertionError("brief tried to write")
+
+        data.write = explode
+        try:
+            result = coordinator_agent.brief(origin="Raigad")
+        finally:
+            data.write = original_write
+        challenger = result["agents"]["plan_challenger"]["result"]
+        assert challenger["findings"] == direct["findings"]
+        assert challenger["findings"] == plan_challenger_agent.review()["findings"]
+        whatif = result["agents"]["whatif"]
+        assert whatif["status"] == "ok"
+        assert whatif["hypothetical"] is True
+        assert whatif["label"] == "hypothetical"
+        assert whatif["modifications"] == [
+            {"kind": "stock", "hub_id": hub_id, "item": item, "qty": recorded_qty}
+        ]
+        stock = next(entry for entry in whatif["result"]["stock"]
+                     if entry["hub_id"] == hub_id and entry["item"] == item)
+        assert stock["recorded_qty"] == recorded_qty
+        assert stock["simulated_qty"] == recorded_qty
+        assert stock["text"] == f"RECORDED stock: {recorded_qty}"
+        assert whatif["result"]["supply"]["changed"] == 0
+        assert plan_challenger_agent.load_snapshot() == snapshot
+        assert fingerprint() == before
+        assert data.DB_PATH == path
+        assert live_stamp() == live_before
+    finally:
         remove_world(path)
