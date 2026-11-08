@@ -18,6 +18,21 @@ import engine  # shared decision logic
 
 DB_PATH = os.environ.get("DISASTER_DB", "disaster.db")  # database file name (can be changed by a setting)
 
+
+def get_db_path():
+    """This Streamlit session's database, or DB_PATH when no session is running."""
+    try:
+        from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
+        if get_script_run_ctx() is None:
+            return DB_PATH
+        import streamlit as st
+        path = st.session_state.get("session_db_path")
+        if path:
+            return path
+    except Exception:
+        return DB_PATH
+    return DB_PATH
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS zones(name TEXT PRIMARY KEY, lat REAL, lon REAL, population INTEGER, vulnerability REAL);
 CREATE TABLE IF NOT EXISTS risk_logs(id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, zone TEXT, lat REAL,
@@ -49,7 +64,7 @@ _tx = threading.local()  # connection shared by approve() / approve_all()
 
 
 def _connect():  # autocommit unless transaction() has started BEGIN
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(get_db_path(), timeout=10)
     conn.row_factory = sqlite3.Row
     conn.isolation_level = None
     return conn
@@ -183,8 +198,13 @@ def situation():  # everything the engine needs
     zones = [z["name"] for z in read("SELECT name FROM zones")]
     travel = engine.travel_table(roads, zones + [h["name"] for h in hubs], zones + [h["name"] for h in hospitals])
     active = current_shipments()  # DISTRIBUTED shipments still cover what was sent
-    groups = [{"id": i["id"], "zone": i["zone"], "people": int(i["people"])} for i in
-              read("SELECT * FROM incidents WHERE need_type='Medical' AND status != 'RESOLVED' ORDER BY id")]
+    groups = []
+    for incident in read("SELECT * FROM incidents WHERE need_type='Medical' AND status != 'RESOLVED' ORDER BY id"):
+        if incident["people"] is None:
+            continue
+        waiting = int(incident["people"]) - _recorded_patients(incident["id"])
+        if waiting > 0:
+            groups.append({"id": incident["id"], "zone": incident["zone"], "people": waiting})
     return {"roads": roads, "hubs": hubs, "hospitals": hospitals, "inventory": inventory, "travel": travel,
             "severity": severity(), "active": active, "groups": groups}
 
@@ -257,10 +277,65 @@ def checks(result=None, expect_change=True):  # automatic checks on the current 
 # ---------------------------------------------------------------------
 # ACTIONS (each one is an event)
 # ---------------------------------------------------------------------
-def add_alert(zone, dtype, severity_word, eta, radius):  # queue an alert for the SMS sender
+def add_risk_reading(zone, disaster_type, probability):
+    """Record one operator risk reading. This does not queue an alert or change a plan.
+
+    The stored source is Operator-entered. It is not an IMD reading or a live sensor.
+    """
+    zone_name = zone.strip() if isinstance(zone, str) else ""
+    hazard = disaster_type.strip() if isinstance(disaster_type, str) else ""
+    if not zone_name:
+        raise ActionError("A zone is required. The reading was not recorded.")
+    if not hazard:
+        raise ActionError("A hazard type is required. The reading was not recorded.")
+    if hazard not in demo.DISASTER_TYPES:
+        raise ActionError("That hazard type is not a recorded type. The reading was not recorded.")
+    if isinstance(probability, bool) or not isinstance(probability, (int, float)) or probability != probability:
+        raise ActionError("A risk probability between 0 and 1 is required. The reading was not recorded.")
+    if probability < 0 or probability > 1:
+        raise ActionError("Risk probability must be between 0 and 1. The reading was not recorded.")
+    with transaction():
+        zones = read("SELECT lat, lon FROM zones WHERE name=:n", n=zone_name)
+        if not zones or zones[0]["lat"] is None or zones[0]["lon"] is None:
+            raise ActionError("That zone is not recorded. The reading was not recorded.")
+        write("""INSERT INTO risk_logs(timestamp, zone, lat, lon, disaster_type, probability, source)
+                 VALUES (:t, :z, :la, :lo, :d, :p, 'Operator-entered')""",
+              t=now(), z=zone_name, la=zones[0]["lat"], lo=zones[0]["lon"], d=hazard, p=float(probability))
+        event("OPERATOR_RISK_RECORDED",
+              f"Operator-entered {hazard} reading for {zone_name} at probability {float(probability):.2f}. "
+              "No alert was queued and the allocation plan was not changed.",
+              do_replan=False)
+
+
+def add_alert(zone, dtype, severity_word, eta, radius):  # store a queued alert; this does not send an SMS
     write("""INSERT INTO alerts(created_at, zone, disaster_type, severity, eta_hours, radius_km, sms_status)
              VALUES (:t, :z, :d, :s, :e, :r, 'QUEUED')""", t=now(), z=zone, d=dtype, s=severity_word, e=eta, r=radius)
-    event("ALERT_QUEUED", f"{severity_word} {dtype} alert queued for {zone} (impact in {eta}h)", do_replan=False)
+    event("ALERT_QUEUED", f"{severity_word} {dtype} alert queued for {zone} (impact in {eta}h). "
+          "No SMS was sent.", do_replan=False)
+
+
+def acknowledge_alert(alert_id):
+    """Record that an operator handled one queued alert.
+
+    This does not send an SMS and it does not mark the alert sent.
+    A repeated or ineligible transition leaves the stored status unchanged.
+    """
+    with transaction():
+        rows = read("SELECT * FROM alerts WHERE id=:i", i=alert_id)
+        if not rows:
+            raise ActionError("That alert is not recorded. Status was not changed.")
+        status = rows[0].get("sms_status")
+        if status == "ACKNOWLEDGED":
+            raise ActionError("This alert is already acknowledged. Status was not changed again.")
+        if status == "SENT":
+            raise ActionError("This alert is stored as sent. Status was not changed.")
+        if status != "QUEUED":
+            raise ActionError("This alert is not queued. Status was not changed.")
+        write("UPDATE alerts SET sms_status='ACKNOWLEDGED' WHERE id=:i", i=alert_id)
+        event("ALERT_ACKNOWLEDGED",
+              f"Alert #{int(alert_id)} acknowledged for {rows[0].get('zone')}. "
+              "An operator handled this stored alert. No SMS was sent and this is not a delivery confirmation.",
+              do_replan=False)
 
 
 def add_incident(zone, need, people):  # new SOS near the zone centre, returned as its new id
@@ -329,6 +404,97 @@ def _create_shipment(item, qty, hub_id, destination):  # stock out + first ledge
     if stock[0]["qty"] - qty == 0:
         log_event("RESOURCE_DEPLETED", f"{hub} has no {item} left")
     return sid, hub
+
+
+def _event_value(message, field):
+    """Read one field=value token from an event message."""
+    text = str(message or "")
+    token = f"{field}="
+    start = text.find(token)
+    if start < 0:
+        return None
+    rest = text[start + len(token):]
+    end = rest.find(";")
+    value = rest if end < 0 else rest[:end]
+    value = value.strip()
+    return value or None
+
+
+def _event_int(message, field):
+    """Read a positive integer field from an event message."""
+    raw = _event_value(message, field)
+    if raw is None or not raw.isdigit():
+        return None
+    return int(raw)
+
+
+def _assignment_marker(message):
+    """Read the plan key stored on a patient-assignment event, if this message has one."""
+    return _event_value(message, "key")
+
+
+def _recorded_patients(incident_id):
+    """Patients already recorded for one incident. Missing fields are not counted as zero."""
+    total = 0
+    for row in read("SELECT message FROM events WHERE type='PATIENT_ASSIGNED'"):
+        if _event_int(row["message"], "incident") != int(incident_id):
+            continue
+        count = _event_int(row["message"], "patients")
+        if count is None:
+            continue
+        total += count
+    return total
+
+
+def record_patient_assignment(plan_key):
+    """Record one proposed patient assignment and reduce that hospital's free beds.
+
+    This is a simulated command-centre record. It does not dispatch a patient or a responder.
+    The bed update and the audit event commit together, or neither is kept.
+    """
+    plan = get_plan()
+    move = next((row for row in plan["patients"] if row.get("key") == plan_key), None)
+    if move is None:
+        raise ActionError("That assignment is no longer in the plan. The plan was updated. Beds were not changed.")
+    count = move.get("patients")
+    hospital_id = move.get("hospital_id")
+    hospital_name = move.get("hospital")
+    incident_id = move.get("incident_id")
+    if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+        raise ActionError("The assignment has no valid patient count. Beds were not changed.")
+    if hospital_id is None or not hospital_name:
+        raise ActionError("The assignment has no recorded hospital. Beds were not changed.")
+    if incident_id is None:
+        raise ActionError("The assignment has no recorded incident. Beds were not changed.")
+    with transaction():
+        hospitals = read("SELECT * FROM hospitals WHERE id=:i", i=hospital_id)
+        if not hospitals or hospitals[0]["name"] != hospital_name:
+            raise ActionError("That hospital is not recorded. Beds were not changed.")
+        free = hospitals[0].get("available_beds")
+        if free is None or isinstance(free, bool) or int(free) < count:
+            shown = "not available" if free is None else free
+            raise ActionError(f"{hospital_name} has {shown} free beds recorded. {count} patients were not recorded.")
+        incidents = read("SELECT * FROM incidents WHERE id=:i", i=incident_id)
+        if not incidents or incidents[0].get("need_type") != "Medical" or incidents[0].get("status") == "RESOLVED":
+            raise ActionError("That medical request is not an open incident. Beds were not changed.")
+        people = incidents[0].get("people")
+        if people is not None and count > int(people):
+            raise ActionError("The assignment has more patients than the incident records. Beds were not changed.")
+        for row in read("SELECT message FROM events WHERE type='PATIENT_ASSIGNED'"):
+            if _assignment_marker(row["message"]) == plan_key:
+                raise ActionError("This assignment was already recorded. Beds were not changed again.")
+        already = _recorded_patients(incident_id)
+        if people is not None and already + count > int(people):
+            raise ActionError(
+                f"SOS #{int(incident_id)} already has {already} patients recorded. "
+                f"{count} more were not recorded. Beds were not changed.")
+        remaining = int(free) - count
+        write("UPDATE hospitals SET available_beds=:a WHERE id=:i", a=remaining, i=hospital_id)
+        event("PATIENT_ASSIGNED",
+              f"Recorded {count} patients from SOS #{int(incident_id)} at {hospital_name}. "
+              f"Free beds are now {remaining}. This does not dispatch a patient or a responder. "
+              f"key={plan_key}; incident={int(incident_id)}; hospital_id={int(hospital_id)}; patients={count}",
+              do_replan=True)
 
 
 def approve(plan_key):  # approve one planned move, or keep the database unchanged
@@ -476,7 +642,7 @@ def seed_demo_data():  # fill an empty database from demo_data.py
 
 
 def init_db():  # create tables; add demo data if empty
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     conn.executescript(SCHEMA)
     from intake_agent import INTAKE_SCHEMA  # new table only; existing tables are not dropped
     conn.executescript(INTAKE_SCHEMA)
@@ -489,6 +655,7 @@ def init_db():  # create tables; add demo data if empty
 
 
 def reset_db():  # delete the file and start again
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
+    path = get_db_path()
+    if os.path.exists(path):
+        os.remove(path)
     init_db()

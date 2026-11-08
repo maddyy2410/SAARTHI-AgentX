@@ -17,8 +17,12 @@ NO_STOCK_ROW = "No stock row recorded"
 ZERO_STOCK = "Recorded stock: 0"
 
 
-def analyse(origin):
-    """Read the current database and explain one origin zone. Nothing is written."""
+def analyse(origin, reports=None):
+    """Read the current database and explain one origin zone. Nothing is written.
+
+    reports, when passed, are attached to affected zones by zone name. They are
+    not written, and they do not change the recorded risk reading or the score.
+    """
     zones = data.read("SELECT * FROM zones ORDER BY name")
     known = {z["name"]: z for z in zones}
     if origin not in known:
@@ -42,13 +46,21 @@ def analyse(origin):
                    _medical_people(incidents, name), roads, zone_names)
         for name in affected
     ]
-    return {
+    located = unlocated = None
+    if reports is not None:
+        located, unlocated = classify_reports(reports, zone_names)
+    def impact(name, hop, role):
+        zone = _impact_zone(name, hop, role, known, roads, hospitals, incidents, risk_by_zone)
+        if located is not None:
+            zone["reported"] = located.get(name, [])
+        return zone
+    result = {
         "origin": origin,
         "disclaimer": DISCLAIMER,
         "plan_version": data.latest_version(),
-        "primary": _impact_zone(origin, 0, "primary", known, roads, hospitals, incidents, risk_by_zone),
-        "secondary": [_impact_zone(n, 1, "secondary", known, roads, hospitals, incidents, risk_by_zone) for n in rings["secondary"]],
-        "extended": [_impact_zone(n, 2, "extended", known, roads, hospitals, incidents, risk_by_zone) for n in rings["extended"]],
+        "primary": impact(origin, 0, "primary"),
+        "secondary": [impact(n, 1, "secondary") for n in rings["secondary"]],
+        "extended": [impact(n, 2, "extended") for n in rings["extended"]],
         "bridges": bridges,
         "timeline": _timeline(origin, rings, roads, zone_names, hubs, risk_by_zone, hospitals, incidents),
         "hospitals": [_hospital_view(n, _hospital_for(hospitals, n)) for n in affected],
@@ -57,6 +69,51 @@ def analyse(origin):
         "stock": describe_stock(inventory, hubs, data.demo.ITEMS),
         "recommendations": _rank(recommendations),
     }
+    if located is not None:
+        affected_names = set(affected)
+        result["unlocated_reports"] = unlocated
+        result["reports_outside_ring"] = [
+            fact for name, facts in located.items() if name not in affected_names for fact in facts]
+    return result
+
+
+def report_fact(row):
+    """One stored report, kept separate from the recorded risk reading."""
+    if not isinstance(row, dict):
+        raise TypeError("A citizen report must be a dictionary.")
+    zone = row.get("zone")
+    if isinstance(zone, str):
+        zone = zone.strip() or None
+    else:
+        zone = None
+    return {
+        "id": row.get("id"),
+        "zone": zone,
+        "classification": row.get("classification"),
+        "severity": row.get("severity"),
+        "people": row.get("people"),
+        "urgency": row.get("urgency"),
+        "priority": row.get("priority"),
+        "validation_status": row.get("validation_status"),
+        "created_at": row.get("created_at"),
+        "basis": "reported",
+    }
+
+
+def classify_reports(reports, zone_names):
+    """Match report zone names to recorded zones. An unresolved zone stays unlocated."""
+    if isinstance(reports, (str, bytes)) or not hasattr(reports, "__iter__"):
+        raise TypeError("Citizen reports must be a list of rows.")
+    known = set(zone_names)
+    located = {}
+    unlocated = []
+    for row in reports:
+        fact = report_fact(row)
+        if fact["zone"] in known:
+            located.setdefault(fact["zone"], []).append(fact)
+        else:
+            unlocated.append(fact)
+    return located, unlocated
 
 
 def zone_rings(origin, roads, zone_names):

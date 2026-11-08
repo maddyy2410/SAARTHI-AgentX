@@ -197,6 +197,57 @@ def test_palghar_stock_recommendations_and_database_are_unchanged():
         remove_world(path)
 
 
+def _fact(report_id, zone, severity="High", people=40):
+    return {"id": report_id, "zone": zone, "classification": "Flood", "severity": severity,
+            "people": people, "urgency": "HIGH", "priority": "HIGH", "validation_status": "valid",
+            "created_at": "2026-11-07 12:00:00"}
+
+
+def _without_reports(result):
+    cleaned = {key: value for key, value in result.items()
+               if key not in ("unlocated_reports", "reports_outside_ring")}
+    for key in ("primary",):
+        cleaned[key] = {field: value for field, value in cleaned[key].items() if field != "reported"}
+    for key in ("secondary", "extended"):
+        cleaned[key] = [{field: value for field, value in zone.items() if field != "reported"} for zone in cleaned[key]]
+    return cleaned
+
+
+def test_reports_attach_by_zone_without_changing_the_score():
+    path = temp_world()
+    try:
+        before = snapshot()
+        plain = ripple_agent.analyse("Ratnagiri")
+        reports = [
+            _fact(1, "Ratnagiri", people=40),
+            _fact(2, "Ratnagiri", severity="Critical", people=12),
+            _fact(3, None, people=None),
+            _fact(4, "Palghar", people=7),
+        ]
+        attached = ripple_agent.analyse("Ratnagiri", reports)
+        assert "reported" not in plain["primary"]
+        assert "unlocated_reports" not in plain
+        assert _without_reports(attached) == plain
+        assert attached["primary"]["risk"] == plain["primary"]["risk"]
+        assert attached["recommendations"] == plain["recommendations"]
+        assert [row["id"] for row in attached["primary"]["reported"]] == [1, 2]
+        assert attached["primary"]["reported"][0]["severity"] == "High"
+        assert attached["primary"]["reported"][0]["people"] == 40
+        assert attached["primary"]["reported"][0]["basis"] == "reported"
+        assert attached["primary"]["reported"][1]["severity"] == "Critical"
+        assert attached["primary"]["reported"][1]["created_at"] == "2026-11-07 12:00:00"
+        raigad = next(zone for zone in attached["secondary"] if zone["zone"] == "Raigad")
+        assert raigad["reported"] == []
+        assert raigad["risk"] == next(zone for zone in plain["secondary"] if zone["zone"] == "Raigad")["risk"]
+        assert [row["id"] for row in attached["unlocated_reports"]] == [3]
+        assert attached["unlocated_reports"][0]["people"] is None
+        assert attached["unlocated_reports"][0]["zone"] is None
+        assert [row["id"] for row in attached["reports_outside_ring"]] == [4]
+        assert snapshot() == before
+    finally:
+        remove_world(path)
+
+
 def _run_all():
     failed = 0
     tests = [value for name, value in globals().items() if name.startswith("test_") and callable(value)]

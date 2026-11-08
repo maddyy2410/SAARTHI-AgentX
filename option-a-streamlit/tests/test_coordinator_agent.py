@@ -304,7 +304,7 @@ def test_whatif_failure_keeps_the_other_agents_and_calls_do_not_share_state():
         original_review = plan_challenger_agent.review
         original_compare = whatif_agent.compare
 
-        def explode(_modifications):
+        def explode(_modifications, ripple=None):
             raise RuntimeError("what-if unavailable")
 
         plan_challenger_agent.review = _with_review([
@@ -421,5 +421,328 @@ def test_real_stock_finding_sets_the_hypothetical_to_the_recorded_quantity():
         assert fingerprint() == before
         assert data.DB_PATH == path
         assert live_stamp() == live_before
+    finally:
+        remove_world(path)
+
+
+def test_received_simulation_is_kept_and_not_recalculated():
+    path = temp_world()
+    try:
+        before = fingerprint()
+        omitted = coordinator_agent.brief(origin="Ratnagiri")
+        assert "received_simulation" not in omitted
+        calls = {"count": 0}
+        original = whatif_agent.compare
+
+        def counting(modifications):
+            calls["count"] += 1
+            return original(modifications)
+
+        whatif_agent.compare = counting
+        try:
+            produced = whatif_agent.compare([{"kind": "road", "road_id": "R6", "status": "BLOCKED"}])
+        finally:
+            whatif_agent.compare = original
+        produced["marker"] = "from-whatif"
+        produced["roads"][0]["simulated_status"] = produced["roads"][0].get("simulated_status")
+        missing = {"recorded_plan_version": None, "modifications": None,
+                   "roads": [{"id": "R1", "recorded_status": "OPEN", "simulated_status": None, "meaning": None}],
+                   "severity": [{"zone": "Palghar", "recorded_probability": None, "simulated_probability": None,
+                                 "recorded_score": None, "simulated_score": None, "missing": True}]}
+        reports = [{"id": 9, "zone": "Ratnagiri", "classification": "Flood", "severity": "High", "people": 40,
+                    "urgency": "HIGH", "priority": "HIGH", "validation_status": "valid",
+                    "created_at": "2026-11-07 12:00:00"}]
+        whatif_agent.compare = counting
+        try:
+            received = coordinator_agent.brief(origin="Ratnagiri", reports=reports, simulation=produced)
+            unavailable = coordinator_agent.brief(origin="Ratnagiri", simulation="not-a-result")
+            held = coordinator_agent.brief(origin="Ratnagiri", simulation=missing)
+        finally:
+            whatif_agent.compare = original
+        assert calls["count"] == 1
+        assert received["agents"]["whatif"]["modifications"] == omitted["agents"]["whatif"]["modifications"]
+        assert received["agents"]["whatif"]["status"] == omitted["agents"]["whatif"]["status"]
+        simulation = received["received_simulation"]
+        assert simulation["status"] == "received"
+        assert simulation["basis"] == "simulated"
+        assert simulation["result"]["marker"] == "from-whatif"
+        assert simulation["result"]["modifications"] == produced["modifications"]
+        road = next(row for row in simulation["result"]["roads"] if row["id"] == "R6")
+        assert road["recorded_status"] == "OPEN"
+        assert road["simulated_status"] == "BLOCKED"
+        assert "SIMULATED" in road["meaning"] and "RECORDED" in road["meaning"]
+        ripple = received["agents"]["ripple"]["result"]
+        assert ripple["primary"]["risk"] == omitted["agents"]["ripple"]["result"]["primary"]["risk"]
+        assert ripple["primary"]["reported"][0]["severity"] == "High"
+        assert ripple["primary"]["reported"][0]["basis"] == "reported"
+        assert ripple["recommendations"] == omitted["agents"]["ripple"]["result"]["recommendations"]
+        assert unavailable["received_simulation"] == {"status": "unavailable", "result": None, "basis": "simulated"}
+        assert unavailable["agents"]["ripple"]["status"] == "ok"
+        held_road = held["received_simulation"]["result"]["roads"][0]
+        assert held_road["simulated_status"] is None
+        assert held_road["meaning"] is None
+        assert held["received_simulation"]["result"]["recorded_plan_version"] is None
+        assert held["received_simulation"]["result"]["severity"][0]["simulated_score"] is None
+        assert fingerprint() == before
+    finally:
+        remove_world(path)
+
+
+def test_existing_ripple_result_reaches_whatif_without_another_analysis():
+    path = temp_world()
+    try:
+        before = fingerprint()
+        calls = {"analyse": 0}
+        original_analyse = ripple_agent.analyse
+        original_review = plan_challenger_agent.review
+
+        def counting(origin, reports=None):
+            calls["analyse"] += 1
+            return original_analyse(origin, reports)
+
+        ripple_agent.analyse = counting
+        plan_challenger_agent.review = _with_review([
+            _finding("confirmed", "roads", "R6 is BLOCKED.", {"road": "R6"}),
+        ])
+        try:
+            result = coordinator_agent.brief(origin="Ratnagiri")
+            idle = coordinator_agent.brief()
+        finally:
+            ripple_agent.analyse = original_analyse
+            plan_challenger_agent.review = original_review
+        assert calls["analyse"] == 1
+        ripple = result["agents"]["ripple"]["result"]
+        simulated = result["agents"]["whatif"]["result"]
+        context = simulated["ripple_context"]
+        assert context["status"] == "received"
+        assert context["basis"] == "inferred"
+        assert context["origin"] == ripple["origin"] == "Ratnagiri"
+        assert context["affected_zones"][0]["risk"] == ripple["primary"]["risk"]
+        assert context["recommendations"] == ripple["recommendations"]
+        assert context["timeline"] == ripple["timeline"]
+        plain = whatif_agent.compare([{"kind": "road", "road_id": "R6", "status": "BLOCKED"}])
+        for key in ("roads", "severity", "hospitals", "stock", "modifications", "supply", "needs"):
+            assert simulated[key] == plain[key]
+        assert "ripple_context" not in plain
+        assert idle["agents"]["ripple"]["status"] == "missing"
+        assert "ripple_context" not in idle["agents"]["whatif"]["result"]
+        assert fingerprint() == before
+    finally:
+        ripple_agent.analyse = original_analyse
+        plan_challenger_agent.review = original_review
+        remove_world(path)
+
+
+def test_proposed_plan_is_reviewed_without_approval_or_writes():
+    path = temp_world()
+    try:
+        before = fingerprint()
+        omitted = coordinator_agent.brief(origin="Ratnagiri")
+        assert "proposed_evaluation" not in omitted
+        stored = data.get_plan()
+        proposed = copy.deepcopy(stored)
+        proposed["version"] = None
+        proposed["basis"] = "proposed"
+        row = dict(proposed["supply"][0])
+        recorded_qty = next(item["qty"] for item in data.read("SELECT qty FROM inventory WHERE hub_id=:h AND item=:i",
+                                                              h=row["hub_id"], i=row["item"]))
+        row["qty"] = int(recorded_qty) + 1
+        duplicate = dict(row)
+        duplicate["key"] = "supply|duplicate"
+        unknown = dict(row)
+        unknown["zone"] = "Nowhere"
+        unknown["key"] = "supply|nowhere"
+        proposed["supply"] = [row, duplicate, unknown]
+        untouched = copy.deepcopy(proposed)
+        reviewed = coordinator_agent.brief(origin="Ratnagiri", proposed_plan=proposed)
+        invalid = coordinator_agent.brief(origin="Ratnagiri", proposed_plan="not-a-plan")
+        assert proposed == untouched
+        evaluation = reviewed["proposed_evaluation"]
+        assert evaluation["state"] == "evaluated"
+        assert evaluation["basis"] == "proposed"
+        assert evaluation["approved"] is False
+        assert evaluation["executed"] is False
+        assert evaluation["plan"] == untouched
+        assert evaluation["plan"]["version"] is None
+        findings = evaluation["result"]["findings"]
+        assert any(item["status"] == "confirmed" and item["area"] == "resources" and item["evidence"].get("hub_id") == row["hub_id"]
+                   for item in findings)
+        assert any(item["status"] == "confirmed" and "Duplicate" in item["why"] for item in findings)
+        assert any(item["status"] == "missing" and item["evidence"].get("zone") == "Nowhere" for item in findings)
+        assert reviewed["agents"]["plan_challenger"]["result"]["findings"] == omitted["agents"]["plan_challenger"]["result"]["findings"]
+        assert reviewed["agents"]["ripple"]["result"]["primary"]["risk"] == omitted["agents"]["ripple"]["result"]["primary"]["risk"]
+        assert "proposed_evaluation" not in reviewed["agents"]["whatif"]
+        assert invalid["proposed_evaluation"]["state"] == "unavailable"
+        assert invalid["proposed_evaluation"]["plan"] is None
+        assert invalid["proposed_evaluation"]["result"] is None
+        assert invalid["proposed_evaluation"]["approved"] is False
+        assert invalid["proposed_evaluation"]["executed"] is False
+        assert invalid["agents"]["plan_challenger"]["status"] == "ok"
+        assert fingerprint() == before
+    finally:
+        remove_world(path)
+
+
+def test_stored_reports_reach_ripple_without_changing_records():
+    path = temp_world()
+    try:
+        before = fingerprint()
+        reports = [
+            {"id": 1, "zone": "Ratnagiri", "classification": "Flood", "severity": "High", "people": 40,
+             "urgency": "HIGH", "priority": "HIGH", "validation_status": "valid", "created_at": "2026-11-07 12:00:00"},
+            {"id": 2, "zone": "Ratnagiri", "classification": "Flood", "severity": "Critical", "people": 12,
+             "urgency": "HIGH", "priority": "CRITICAL", "validation_status": "valid", "created_at": "2026-11-07 12:05:00"},
+            {"id": 3, "zone": None, "classification": "Flood", "severity": "High", "people": None,
+             "urgency": "HIGH", "priority": "HIGH", "validation_status": "valid", "created_at": "2026-11-07 12:06:00"},
+        ]
+        plain = coordinator_agent.brief(origin="Ratnagiri")
+        briefed = coordinator_agent.brief(origin="Ratnagiri", reports=reports)
+        direct = ripple_agent.analyse("Ratnagiri")
+        ripple = briefed["agents"]["ripple"]["result"]
+        assert plain["agents"]["ripple"]["result"]["recommendations"] == direct["recommendations"]
+        assert ripple["recommendations"] == direct["recommendations"]
+        assert ripple["primary"]["risk"] == direct["primary"]["risk"]
+        assert "reported" not in plain["agents"]["ripple"]["result"]["primary"]
+        assert [row["id"] for row in ripple["primary"]["reported"]] == [1, 2]
+        assert ripple["primary"]["reported"][0]["severity"] == "High"
+        assert ripple["primary"]["reported"][0]["people"] == 40
+        assert ripple["primary"]["reported"][1]["severity"] == "Critical"
+        raigad = next(zone for zone in ripple["secondary"] if zone["zone"] == "Raigad")
+        assert raigad["reported"] == []
+        assert [row["id"] for row in ripple["unlocated_reports"]] == [3]
+        assert ripple["unlocated_reports"][0]["people"] is None
+        waiting = coordinator_agent.brief(reports=reports)
+        assert waiting["agents"]["ripple"]["status"] == "missing"
+        assert waiting["agents"]["ripple"]["result"] is None
+        assert [row["id"] for row in waiting["agents"]["ripple"]["unlocated_reports"]] == [3]
+        assert [row["id"] for row in waiting["agents"]["ripple"]["reports_awaiting_origin"]] == [1, 2]
+        assert fingerprint() == before
+    finally:
+        remove_world(path)
+
+
+def test_evidence_classes_stay_separate_across_the_handoff():
+    path = temp_world()
+    try:
+        before = fingerprint()
+        reports = [
+            {"id": 1, "zone": "Ratnagiri", "classification": "Flood", "severity": "High", "people": 40,
+             "urgency": "HIGH", "priority": "HIGH", "validation_status": "valid", "created_at": "2026-11-07 12:00:00"},
+            {"id": 4, "zone": "Palghar", "classification": "Flood", "severity": "Low", "people": None,
+             "urgency": None, "priority": None, "validation_status": "incomplete", "created_at": "2026-11-07 12:05:00"},
+        ]
+        calls = {"analyse": 0}
+        original_analyse = ripple_agent.analyse
+        original_compare = whatif_agent.compare
+
+        def counting(origin, reports=None):
+            calls["analyse"] += 1
+            return original_analyse(origin, reports)
+
+        ripple_agent.analyse = counting
+        try:
+            collected = coordinator_agent.brief(origin="Ratnagiri", reports=reports)
+        finally:
+            ripple_agent.analyse = original_analyse
+        assert calls["analyse"] == 1
+        cascade = collected["agents"]["ripple"]["result"]
+        assert cascade["primary"]["reported"][0]["basis"] == "reported"
+        assert cascade["primary"]["reported"][0]["people"] == 40
+        recorded_probability = original_analyse("Ratnagiri")["primary"]["risk"]["probability"]
+        assert cascade["primary"]["risk"]["probability"] == recorded_probability
+        outside = cascade["reports_outside_ring"][0]
+        assert outside["basis"] == "reported"
+        assert outside["people"] is None
+
+        def refuse_analyse(*_args, **_kwargs):
+            raise AssertionError("what-if ran the cascade again")
+
+        ripple_agent.analyse = refuse_analyse
+        try:
+            compared = original_compare([{"kind": "road", "road_id": "R6", "status": "BLOCKED"}], ripple=cascade)
+        finally:
+            ripple_agent.analyse = original_analyse
+        compared["marker"] = "existing-comparison"
+        road = next(row for row in compared["roads"] if row["id"] == "R6")
+        assert road["recorded_status"] == "OPEN"
+        assert road["simulated_status"] == "BLOCKED"
+        assert compared["ripple_context"]["basis"] == "inferred"
+        assert compared["ripple_context"]["affected_zones"][0]["risk"]["probability"] == recorded_probability
+
+        def refuse_compare(*_args, **_kwargs):
+            raise AssertionError("coordinator reran the simulation")
+
+        stored = data.get_plan()
+        proposed = copy.deepcopy(stored)
+        proposed["version"] = None
+        proposed["supply"] = [dict(stored["supply"][0], qty=10**9)]
+        untouched = copy.deepcopy(proposed)
+        whatif_agent.compare = refuse_compare
+        try:
+            handed = coordinator_agent.brief(origin="Ratnagiri", reports=reports, simulation=compared, proposed_plan=proposed)
+        finally:
+            whatif_agent.compare = original_compare
+        assert proposed == untouched
+        assert handed["received_simulation"]["basis"] == "simulated"
+        assert handed["received_simulation"]["result"]["marker"] == "existing-comparison"
+        assert handed["received_simulation"]["result"]["ripple_context"]["basis"] == "inferred"
+        assert handed["agents"]["ripple"]["result"]["primary"]["reported"][0]["basis"] == "reported"
+        assert handed["agents"]["ripple"]["result"]["primary"]["risk"]["probability"] == recorded_probability
+        stored_findings = handed["agents"]["plan_challenger"]["result"]["findings"]
+        assert all("basis" not in item for item in stored_findings)
+        evaluation = handed["proposed_evaluation"]
+        assert evaluation["basis"] == "proposed"
+        assert evaluation["state"] == "evaluated"
+        assert evaluation["approved"] is False
+        assert evaluation["executed"] is False
+        assert any(item["area"] == "resources" and item["status"] == "confirmed" for item in evaluation["result"]["findings"])
+        assert not any(item.get("why") == evaluation["result"]["findings"][0]["why"]
+                       and item.get("area") == "resources" and "10" in str(item.get("why"))
+                       for item in handed["agents"]["plan_challenger"]["result"]["findings"])
+        palghar = coordinator_agent.brief(origin="Palghar")
+        unranked = palghar["agents"]["ripple"]["result"]["recommendations"]["unranked"]
+        palghar_score = next(row for row in unranked if row["zone"] == "Palghar")
+        assert palghar_score["score"] is None
+        assert "proposed_evaluation" not in palghar
+        assert "received_simulation" not in palghar
+        assert fingerprint() == before
+    finally:
+        ripple_agent.analyse = original_analyse
+        whatif_agent.compare = original_compare
+        remove_world(path)
+
+
+def test_stored_citizen_reports_are_listed_without_new_records():
+    path = temp_world()
+    try:
+        intake_agent.submit({"source": "citizen", "zone": "Ratnagiri", "people": "40", "disaster_type": "Flood",
+                             "urgency": "HIGH", "description": "Water in houses", "synthetic": 0})
+        intake_agent.submit({"source": "citizen", "zone": "Raigad", "people": "", "disaster_type": "Flood",
+                             "urgency": "MEDIUM", "description": "People count was not given", "synthetic": 0})
+        listed = intake_agent.list_reports()
+        before = fingerprint()
+        shown = coordinator_agent.brief(origin="Ratnagiri", reports=listed)
+        empty = coordinator_agent.brief(reports=[])
+        omitted = coordinator_agent.brief(origin="Ratnagiri")
+        facts = shown["citizen_reports"]["reports"]
+        assert shown["citizen_reports"]["status"] == "available"
+        assert shown["citizen_reports"]["basis"] == "reported"
+        assert facts == [ripple_agent.report_fact(row) for row in listed]
+        assert len(facts) == 2
+        assert all(row["basis"] == "reported" for row in facts)
+        assert any(row["people"] is None for row in facts)
+        assert any(row["people"] == 40 for row in facts)
+        for row in facts:
+            for key in ("id", "classification", "severity", "urgency", "people", "priority",
+                        "validation_status", "created_at"):
+                assert key in row
+        attached = shown["agents"]["ripple"]["result"]["primary"]["reported"]
+        assert [row["id"] for row in attached] == [row["id"] for row in facts if row["zone"] == "Ratnagiri"]
+        assert shown["agents"]["ripple"]["result"]["primary"]["risk"] == omitted["agents"]["ripple"]["result"]["primary"]["risk"]
+        assert empty["citizen_reports"] == {"status": "empty", "basis": "reported", "reports": []}
+        assert empty["agents"]["ripple"]["status"] == "missing"
+        assert "citizen_reports" not in omitted
+        assert data.read("SELECT COUNT(*) AS n FROM citizen_reports")[0]["n"] == 2
+        assert fingerprint() == before
     finally:
         remove_world(path)

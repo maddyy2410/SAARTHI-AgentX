@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("DISASTER_DB", "/tmp/saarthi-whatif-placeholder.db")
 
 import data  # noqa: E402
+import ripple_agent  # noqa: E402
 import whatif_agent  # noqa: E402
 
 
@@ -153,6 +154,69 @@ def test_invalid_inputs_and_independent_copies():
         for forbidden in ("run_scenario", "reset_db", "replan", "DB_PATH", ".write(", "event("):
             assert forbidden not in source
     finally:
+        remove_world(path)
+
+
+def test_ripple_context_is_attached_without_changing_the_comparison():
+    path = temp_world()
+    try:
+        before = snapshot()
+        plain = whatif_agent.compare([])
+        assert "ripple_context" not in plain
+        calls = {"analyse": 0}
+        original = ripple_agent.analyse
+
+        def counting(origin, reports=None):
+            calls["analyse"] += 1
+            return original(origin, reports)
+
+        ripple_agent.analyse = counting
+        try:
+            cascade = counting("Ratnagiri", reports=[
+                {"id": 9, "zone": "Ratnagiri", "classification": "Flood", "severity": "High",
+                 "people": 40, "urgency": "HIGH", "priority": "HIGH", "validation_status": "valid",
+                 "created_at": "2026-11-07 12:00:00"},
+            ])
+        finally:
+            ripple_agent.analyse = original
+        blocked = whatif_agent.compare([{"kind": "road", "road_id": "R6", "status": "BLOCKED"}], ripple=cascade)
+        same = whatif_agent.compare([{"kind": "road", "road_id": "R6", "status": "BLOCKED"}])
+        invalid = whatif_agent.compare([], ripple="not-a-cascade")
+        partial = whatif_agent.compare([], ripple={"origin": None, "primary": {}})
+        assert calls["analyse"] == 1
+        context = blocked["ripple_context"]
+        assert context["status"] == "received"
+        assert context["basis"] == "inferred"
+        assert context["origin"] == "Ratnagiri"
+        assert context["affected_zones"][0]["zone"] == "Ratnagiri"
+        assert context["affected_zones"][0]["role"] == "primary"
+        assert context["affected_zones"][0]["risk"] == cascade["primary"]["risk"]
+        assert context["affected_zones"][0]["reported"][0]["severity"] == "High"
+        assert context["affected_zones"][0]["reported"][0]["basis"] == "reported"
+        assert context["recommendations"] == cascade["recommendations"]
+        assert context["recommendations"]["ranked"][0]["score"] == cascade["recommendations"]["ranked"][0]["score"]
+        names = [row["zone"] for row in context["affected_zones"]]
+        assert names == [cascade["primary"]["zone"]] + [row["zone"] for row in cascade["secondary"]] + [
+            row["zone"] for row in cascade["extended"]]
+        for key in ("roads", "routes", "isolation", "hospitals", "patients", "stock", "supply", "needs", "severity", "modifications"):
+            assert blocked[key] == same[key]
+        road = next(row for row in blocked["roads"] if row["id"] == "R6")
+        assert road["recorded_status"] == "OPEN"
+        assert road["simulated_status"] == "BLOCKED"
+        ratnagiri = next(row for row in blocked["severity"] if row["zone"] == "Ratnagiri")
+        assert ratnagiri["recorded_probability"] == cascade["primary"]["risk"]["probability"]
+        assert ratnagiri["simulated_probability"] == ratnagiri["recorded_probability"]
+        assert "ripple_context" not in same
+        assert invalid["ripple_context"] == {"status": "unavailable", "result": None, "basis": "inferred"}
+        assert invalid["roads"] == plain["roads"]
+        assert invalid["severity"] == plain["severity"]
+        assert partial["ripple_context"]["status"] == "unavailable"
+        assert partial["modifications"] == plain["modifications"]
+        assert snapshot() == before
+        cascade["primary"]["risk"]["probability"] = 0
+        assert blocked["ripple_context"]["affected_zones"][0]["risk"]["probability"] != 0
+    finally:
+        ripple_agent.analyse = original
         remove_world(path)
 
 

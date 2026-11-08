@@ -6,6 +6,8 @@ change What-If accepts. It does not log an incident, allocate a shipment, or
 create a plan.
 """
 
+import copy
+
 import data
 import intake_agent
 import plan_challenger_agent
@@ -19,11 +21,14 @@ DISCLAIMER = (
 SOURCES = ("intake", "ripple", "plan_challenger", "whatif", "stored_plan", "records")
 
 
-def brief(report=None, origin=None):
-    """Collect one advisory brief. report and origin are optional.
+def brief(report=None, origin=None, reports=None, simulation=None, proposed_plan=None):
+    """Collect one advisory brief. report, origin, reports, simulation and proposed_plan are optional.
 
     A missing zone is reported as missing information. One agent can fail
-    while the other results stay in the brief.
+    while the other results stay in the brief. Stored citizen reports are
+    attached by zone name and are not written as incidents. A simulation
+    result from What-If is kept as received and is not calculated again.
+    A proposed plan is reviewed by Plan Challenger and is not approved or stored.
     """
     out = {"disclaimer": DISCLAIMER, "reviewed_at": data.now(), "plan_version": None,
            "stored_plan": None, "records": None,
@@ -31,9 +36,12 @@ def brief(report=None, origin=None):
            "findings": []}
     _read_state(out)
     intake_result = _collect_intake(out, report)
-    _collect_ripple(out, _origin_name(origin, intake_result))
+    _collect_stored_reports(out, reports)
+    _collect_ripple(out, _origin_name(origin, intake_result), reports)
     _collect_challenger(out)
     _collect_whatif(out)
+    _receive_simulation(out, simulation)
+    _evaluate_proposed(out, proposed_plan)
     return out
 
 
@@ -61,6 +69,25 @@ def _read_state(out):
             _finding(out, "records", "missing",
                      f"Severity for {row.get('name')} is missing a recorded input. The missing input is not zero.",
                      {"zone": row.get("name")})
+
+
+def _collect_stored_reports(out, reports):
+    """Keep the stored report rows already retrieved. Nothing is written or scored again."""
+    if reports is None:
+        return
+    if isinstance(reports, (str, bytes)) or not hasattr(reports, "__iter__"):
+        out["citizen_reports"] = {"status": "unavailable", "basis": "reported", "reports": None}
+        return
+    facts = []
+    for row in reports:
+        if not isinstance(row, dict):
+            continue
+        facts.append(ripple_agent.report_fact(row))
+    out["citizen_reports"] = {
+        "status": "empty" if not facts else "available",
+        "basis": "reported",
+        "reports": facts,
+    }
 
 
 def _collect_intake(out, report):
@@ -96,7 +123,7 @@ def _collect_intake(out, report):
     return result
 
 
-def _collect_ripple(out, origin):
+def _collect_ripple(out, origin, reports=None):
     section = out["agents"]["ripple"]
     if not origin:
         section["status"] = "missing"
@@ -104,9 +131,14 @@ def _collect_ripple(out, origin):
         _finding(out, "ripple", "missing",
                  "No recorded zone was available, so cascade analysis was not run. This is missing information, not a score of zero.",
                  {})
+        if reports is not None:
+            names = [row["name"] for row in data.read("SELECT name FROM zones")]
+            located, unlocated = ripple_agent.classify_reports(reports, names)
+            section["unlocated_reports"] = unlocated
+            section["reports_awaiting_origin"] = [fact for facts in located.values() for fact in facts]
         return
     try:
-        result = ripple_agent.analyse(origin)
+        result = ripple_agent.analyse(origin, reports)
     except Exception as exc:
         _fail(out, "ripple", exc, {"zone": origin})
         return
@@ -178,7 +210,12 @@ def _collect_whatif(out):
         section["status"] = "skipped" if section["skipped"] else "not_requested"
         return
     try:
-        result = whatif_agent.compare([dict(item) for item in modifications])
+        ripple_section = out["agents"]["ripple"]
+        ripple_result = ripple_section.get("result") if ripple_section.get("status") == "ok" else None
+        if ripple_result is None:
+            result = whatif_agent.compare([dict(item) for item in modifications])
+        else:
+            result = whatif_agent.compare([dict(item) for item in modifications], ripple=ripple_result)
     except Exception as exc:
         _fail(out, "whatif", exc)
         return
@@ -241,6 +278,49 @@ def _whatif_modification(finding, roads, hospitals, inventory):
                           f"{qty} was not simulated.")
         return {"kind": "stock", "hub_id": hub_id, "item": item, "qty": qty}, None
     return None, "This confirmed finding is not a road status, free-bed count, or hub stock quantity that the hypothetical comparison can change."
+
+
+def _receive_simulation(out, simulation):
+    """Keep a What-If comparison that was already produced. Nothing is recalculated or stored."""
+    if simulation is None:
+        return
+    if not isinstance(simulation, dict):
+        out["received_simulation"] = {"status": "unavailable", "result": None, "basis": "simulated"}
+        return
+    try:
+        received = copy.deepcopy(simulation)
+    except Exception:
+        out["received_simulation"] = {"status": "unavailable", "result": None, "basis": "simulated"}
+        return
+    out["received_simulation"] = {"status": "received", "result": received, "basis": "simulated"}
+
+
+def _evaluate_proposed(out, proposed_plan):
+    """Review a plan the caller already built. The plan is not rewritten, approved, or stored."""
+    if proposed_plan is None:
+        return
+    unavailable = {"state": "unavailable", "basis": "proposed", "plan": None, "result": None,
+                   "approved": False, "executed": False}
+    if not isinstance(proposed_plan, dict):
+        out["proposed_evaluation"] = unavailable
+        return
+    try:
+        held = copy.deepcopy(proposed_plan)
+    except Exception:
+        out["proposed_evaluation"] = unavailable
+        return
+    try:
+        result = plan_challenger_agent.review(held, plan_challenger_agent.load_snapshot())
+    except Exception as exc:
+        out["proposed_evaluation"] = {
+            "state": "proposed", "basis": "proposed", "plan": held, "result": None,
+            "error": f"{type(exc).__name__}: {exc}", "approved": False, "executed": False,
+        }
+        return
+    out["proposed_evaluation"] = {
+        "state": "evaluated", "basis": "proposed", "plan": held, "result": result,
+        "approved": False, "executed": False,
+    }
 
 
 def _origin_name(origin, intake_result):

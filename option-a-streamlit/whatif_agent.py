@@ -21,15 +21,21 @@ class ScenarioError(Exception):
     """A hypothetical change does not fit the recorded data."""
 
 
-def compare(modifications):
+def compare(modifications, ripple=None):
     """Read a fresh baseline, copy it, apply the hypothetical list, and compare.
 
     A later call reads the database again. It does not reuse this copy.
+    ripple, when passed, is an existing Ripple result. It is attached as
+    context and is not calculated again. It does not change the comparison
+    and it is not written as a plan.
     """
     recorded = load_baseline()
     simulated = fresh_copy(recorded)
     notes = apply_modifications(simulated, modifications)
-    return _comparison(recorded, simulated, notes)
+    result = _comparison(recorded, simulated, notes)
+    if ripple is not None:
+        result["ripple_context"] = _ripple_context(ripple)
+    return result
 
 
 def load_baseline():
@@ -176,6 +182,58 @@ def _apply_probability(state, modification, original):
     current["probability"] = probability
     return (f"SIMULATED: {zone} probability set to {probability:.2f}. "
             f"RECORDED probability stays {recorded_probability:.2f}.")
+
+
+def _ripple_context(ripple):
+    """Copy cascade findings that Ripple already produced. Nothing is recalculated."""
+    if not isinstance(ripple, dict) or not ripple.get("origin") or not isinstance(ripple.get("primary"), dict):
+        return {"status": "unavailable", "result": None, "basis": "inferred"}
+    try:
+        source = copy.deepcopy(ripple)
+    except Exception:
+        return {"status": "unavailable", "result": None, "basis": "inferred"}
+    zones = [_ripple_zone(source["primary"])]
+    for role in ("secondary", "extended"):
+        rows = source.get(role)
+        if rows is None:
+            continue
+        if not isinstance(rows, list):
+            return {"status": "unavailable", "result": None, "basis": "inferred"}
+        for row in rows:
+            if isinstance(row, dict):
+                zones.append(_ripple_zone(row))
+    recommendations = source.get("recommendations")
+    if recommendations is not None and not isinstance(recommendations, dict):
+        recommendations = None
+    context = {
+        "status": "received",
+        "basis": "inferred",
+        "origin": source.get("origin"),
+        "disclaimer": source.get("disclaimer"),
+        "affected_zones": zones,
+        "recommendations": recommendations,
+        "bridges": source.get("bridges") if "bridges" in source else None,
+        "timeline": source.get("timeline") if "timeline" in source else None,
+    }
+    if "unlocated_reports" in source:
+        context["unlocated_reports"] = source.get("unlocated_reports")
+    if "reports_outside_ring" in source:
+        context["reports_outside_ring"] = source.get("reports_outside_ring")
+    return context
+
+
+def _ripple_zone(zone):
+    kept = {
+        "zone": zone.get("zone"),
+        "role": zone.get("role"),
+        "hop": zone.get("hop"),
+        "risk": zone.get("risk"),
+        "roads": zone.get("roads"),
+        "hospital": zone.get("hospital"),
+    }
+    if "reported" in zone:
+        kept["reported"] = zone.get("reported")
+    return kept
 
 
 def _comparison(recorded, simulated, notes):
