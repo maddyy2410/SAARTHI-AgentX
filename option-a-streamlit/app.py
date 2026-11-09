@@ -41,33 +41,33 @@ import coordinator_agent  # read-only brief across the four agents; it does not 
 # 1. SETTINGS
 # ---------------------------------------------------------------------
 REFRESH_SECONDS = 10  # live mode re-reads data this often
-LEVEL_HEX = {"Critical": "#A3262F", "High": "#C98A1B", "Moderate": "#9A6410", "Low": "#1E6B55"}  # level colours for charts
-LEVEL_RGB = {"Critical": [163, 38, 47], "High": [201, 138, 27], "Moderate": [154, 100, 16], "Low": [30, 107, 85]}  # same, for the map
-ROAD_RGB = {"OPEN": [31, 143, 208], "SLOW": [242, 158, 31], "BLOCKED": [163, 38, 47]}  # road colours: Plan C blue, amber, crimson
-SOS_RGB = {"OPEN": [214, 59, 69], "IN_TRANSIT": [242, 158, 31], "RESOLVED": [47, 163, 126]}  # SOS dot colours
-# Royal Ivory / Navy / Gold design tokens from Saarthi – Emergency Command Center.html
-NAVY = "#0C1B36"
-BLUE = "#2F5F9E"
-GREEN = "#1E6B55"
-CRIMSON = "#A3262F"
-AMBER = "#9A6410"
-IVORY = "#FAF7F0"
-GOLD = "#C09A48"
-GOLD_LIGHT = "#D4B068"
-EYEBROW = "#8A6A1F"
-CREAM = "#F4EEDD"
-NAVY_MUTED = "#B9C5DC"
+LEVEL_HEX = {"Critical": "#D9483B", "High": "#E58A35", "Moderate": "#5C7380", "Low": "#238C78"}  # level colours for charts
+LEVEL_RGB = {"Critical": [217, 72, 59], "High": [229, 138, 53], "Moderate": [92, 115, 128], "Low": [35, 140, 120]}  # same, for the map
+ROAD_RGB = {"OPEN": [117, 129, 138], "SLOW": [229, 138, 53], "BLOCKED": [217, 72, 59]}  # grey, orange, red
+SOS_RGB = {"OPEN": [217, 72, 59], "IN_TRANSIT": [229, 138, 53], "RESOLVED": [35, 140, 120]}  # SOS dot colours
+# Emergency-operations palette. Names stay so the existing layout CSS still resolves.
+NAVY = "#142B3B"
+BLUE = "#5C7380"
+GREEN = "#238C78"
+CRIMSON = "#D9483B"
+AMBER = "#E58A35"
+IVORY = "#F3F5F6"
+GOLD = "#E1E6E9"
+GOLD_LIGHT = "#C5D0D6"
+EYEBROW = "#75818A"
+CREAM = "#F3F5F6"
+NAVY_MUTED = "#C5D0D6"
 CANVAS = IVORY
 RAISED = "#FFFFFF"
-INSET = IVORY
+INSET = "#E7ECEE"
 SIDEBAR = NAVY
-LINE = "#E4DDCC"
-INPUT_LINE = "#CFC6AE"
-TEXT = "#1B2433"
-MUTED = "#5B6577"
-WARNING = "#9A6410"  # pending attention; not a severity level
-WARNING_BORDER = "#C09A48"
-WARNING_BG = "#FAF4E4"
+LINE = "#E1E6E9"
+INPUT_LINE = "#D5DDE1"
+TEXT = "#263238"
+MUTED = "#75818A"
+WARNING = "#E58A35"  # pending attention; not a severity level
+WARNING_BORDER = "#E8C49A"
+WARNING_BG = "#FBF3EA"
 EVENT_ICON = {"ROAD_BLOCKED": "⛔", "ROAD_SLOW": "🐢", "ROAD_REOPENED": "✅", "HOSPITAL_CAPACITY_CHANGED": "🏥",
               "NEW_PATIENTS": "🚑", "RESOURCE_RECEIVED": "📦", "RESOURCE_DEPLETED": "⚠️", "REOPTIMIZED": "🔁",
               "RISK_UPDATED": "🌀", "TAMPER": "🚨", "INTAKE_SUBMITTED": "📥", "INTAKE_APPROVED": "✅",
@@ -234,26 +234,26 @@ def command_styles():
     """Exact visual styling from Saarthi – Emergency Command Center.html with complete light-surface overrides."""
     st.markdown(
         f"""<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@500;600;700&family=Noto+Sans+Devanagari:wght@400;600&display=swap" rel="stylesheet"><style>
-        :root {{ --nv: {NAVY}; --iv: {IVORY}; --gd: {GOLD}; --ink: {TEXT}; --mu: {MUTED}; --hl: {LINE}; --cr: #A3262F; --am: #9A6410; --bl: #2F5F9E; --gn: #1E6B55; --primary-color: {NAVY}; --background-color: #FFFFFF; --secondary-background-color: {IVORY}; --text-color: {TEXT}; --saarthi-canvas: {CANVAS}; --saarthi-raised: {RAISED}; --saarthi-inset: {INSET}; --saarthi-sidebar: {SIDEBAR}; --saarthi-line: {LINE}; --saarthi-text: {TEXT}; --saarthi-muted: {MUTED}; --saarthi-warning: {WARNING}; color-scheme: light !important; }}
+        :root {{ --nv: {NAVY}; --iv: {IVORY}; --gd: {GOLD}; --ink: {TEXT}; --mu: {MUTED}; --hl: {LINE}; --cr: #D9483B; --am: #E58A35; --bl: #5C7380; --gn: #238C78; --primary-color: {NAVY}; --background-color: #FFFFFF; --secondary-background-color: {IVORY}; --text-color: {TEXT}; --saarthi-canvas: {CANVAS}; --saarthi-raised: {RAISED}; --saarthi-inset: {INSET}; --saarthi-sidebar: {SIDEBAR}; --saarthi-line: {LINE}; --saarthi-text: {TEXT}; --saarthi-muted: {MUTED}; --saarthi-warning: {WARNING}; color-scheme: light !important; }}
         html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"], .main {{ background: {IVORY} !important; background-color: {IVORY} !important; color: {TEXT} !important; font: 14px/1.45 'Inter', sans-serif !important; font-variant-numeric: tabular-nums; color-scheme: light !important; }}
         [data-testid="stDeployButton"], .stAppDeployButton {{ display: none !important; }}
         header[data-testid="stHeader"] {{ background: transparent !important; }}
-        [data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] button {{ background: {NAVY} !important; color: {CREAM} !important; border: 1px solid {GOLD} !important; border-radius: 0px !important; }}
+        [data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] button {{ background: {NAVY} !important; color: {CREAM} !important; border: 1px solid {LINE} !important; border-radius: 0px !important; }}
         [data-testid="collapsedControl"] svg, [data-testid="stSidebarCollapsedControl"] svg {{ fill: {CREAM} !important; color: {CREAM} !important; }}
         .block-container {{ padding-top: 0.5rem !important; padding-bottom: 2rem !important; max-width: 1440px !important; }}
-        [data-testid="stSidebar"], [data-testid="stSidebar"] > div {{ background: {NAVY} !important; background-color: {NAVY} !important; border-right: 4px double {GOLD} !important; color: {CREAM} !important; }}
+        [data-testid="stSidebar"], [data-testid="stSidebar"] > div {{ background: {NAVY} !important; background-color: {NAVY} !important; border-right: none !important; color: {CREAM} !important; }}
         [data-testid="stSidebar"] .block-container {{ padding-top: 1rem !important; }}
         [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{ font-family: 'Playfair Display', serif !important; color: {CREAM} !important; letter-spacing: 0.14em !important; }}
         [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label, [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{ color: {CREAM} !important; }}
-        [data-testid="stSidebar"] hr {{ border-color: rgba(192, 154, 72, 0.35) !important; }}
+        [data-testid="stSidebar"] hr {{ border-color: rgba(255, 255, 255, 0.16) !important; }}
         [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {{ font: 600 10.5px 'Inter', sans-serif !important; letter-spacing: 0.16em !important; text-transform: uppercase !important; color: {GOLD_LIGHT} !important; line-height: 1.3 !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button {{ min-height: 38px !important; padding: 8px 14px !important; font: 600 11.5px 'Inter', sans-serif !important; letter-spacing: 0.06em !important; text-align: left !important; border-radius: 0px !important; border: 1px solid rgba(192, 154, 72, 0.55) !important; background: rgba(12, 27, 54, 0.65) !important; color: {CREAM} !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button:hover {{ background: {GOLD} !important; color: {NAVY} !important; border-color: {GOLD} !important; }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button {{ min-height: 38px !important; padding: 8px 14px !important; font: 600 11.5px 'Inter', sans-serif !important; letter-spacing: 0.06em !important; text-align: left !important; border-radius: 0px !important; border: 1px solid rgba(255, 255, 255, 0.18) !important; background: rgba(255, 255, 255, 0.04) !important; color: {CREAM} !important; }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button:hover {{ background: {WARNING} !important; color: {NAVY} !important; border-color: {WARNING} !important; }}
         [data-testid="stSidebar"] [data-testid="stButton"] button:hover p, [data-testid="stSidebar"] [data-testid="stButton"] button:hover span {{ color: {NAVY} !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] {{ background: {CREAM} !important; color: {NAVY} !important; border: 1px solid {GOLD} !important; border-left: 4px solid {GOLD} !important; font-weight: 600 !important; }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] {{ background: {WARNING} !important; color: {NAVY} !important; border: 1px solid {WARNING} !important; border-left: 4px solid {CRIMSON} !important; font-weight: 600 !important; }}
         [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] p, [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] span {{ color: {NAVY} !important; font-weight: 600 !important; }}
         [data-testid="stSidebar"] [data-testid="stButton"] button[kind="secondary"] p, [data-testid="stSidebar"] [data-testid="stButton"] button[kind="secondary"] span {{ color: {CREAM} !important; }}
-        [data-testid="stSidebar"] .saarthi-notice {{ background: #16294D !important; border-color: {GOLD} !important; border-left: 3px solid {GOLD} !important; color: {CREAM} !important; }}
+        [data-testid="stSidebar"] .saarthi-notice {{ background: #16294D !important; border-color: {WARNING} !important; border-left: 3px solid {WARNING} !important; color: {CREAM} !important; }}
         [data-testid="stSidebar"] .saarthi-notice span {{ color: {CREAM} !important; }}
         [data-testid="stHeading"] {{ margin-bottom: 0.25rem; }}
         [data-testid="stHeading"] h1, [data-testid="stHeading"] h2, [data-testid="stHeading"] h3 {{ font-family: 'Playfair Display', serif !important; font-weight: 600 !important; color: {NAVY} !important; letter-spacing: 0 !important; }}
@@ -261,30 +261,30 @@ def command_styles():
         [data-testid="stHeading"] h3 {{ font-size: 18px !important; }}
         [data-testid="stVerticalBlock"] {{ gap: 0.65rem; }}
         [data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li {{ margin-bottom: 0 !important; color: {TEXT}; }}
-        [data-testid="stMarkdownContainer"] code, .stApp code {{ background: #F4EEDD !important; color: {NAVY} !important; border: 1px solid {LINE} !important; padding: 1px 5px !important; border-radius: 0px !important; font-size: 12px !important; }}
+        [data-testid="stMarkdownContainer"] code, .stApp code {{ background: #F3F5F6 !important; color: {NAVY} !important; border: 1px solid {LINE} !important; padding: 1px 5px !important; border-radius: 0px !important; font-size: 12px !important; }}
         [data-testid="stCaptionContainer"] p {{ font-size: 12px !important; line-height: 1.45 !important; color: {MUTED} !important; }}
-        [data-testid="stVerticalBlockBorderWrapper"], [data-testid="stVerticalBlock"].st-emotion-cache-pb8mwp, div[data-testid="stForm"] {{ background: #FFFFFF !important; background-color: #FFFFFF !important; border: 1px solid {LINE} !important; border-top: 3px solid {GOLD} !important; border-radius: 0px !important; padding: 18px 20px !important; }}
-        .stMain [data-testid="stButton"] button, .stMain [data-testid="stFormSubmitButton"] button {{ border-radius: 0px !important; min-height: 38px !important; padding: 6px 14px !important; font: 600 11.5px 'Inter', sans-serif !important; letter-spacing: 0.05em !important; border: 1px solid {GOLD} !important; background: #FFFFFF !important; background-color: #FFFFFF !important; color: {NAVY} !important; white-space: nowrap !important; }}
+        [data-testid="stVerticalBlockBorderWrapper"], [data-testid="stVerticalBlock"].st-emotion-cache-pb8mwp, div[data-testid="stForm"] {{ background: #FFFFFF !important; background-color: #FFFFFF !important; border: 1px solid {LINE} !important; border-top: 3px solid {LINE} !important; border-radius: 0px !important; padding: 18px 20px !important; }}
+        .stMain [data-testid="stButton"] button, .stMain [data-testid="stFormSubmitButton"] button {{ border-radius: 0px !important; min-height: 38px !important; padding: 6px 14px !important; font: 600 11.5px 'Inter', sans-serif !important; letter-spacing: 0.05em !important; border: 1px solid {LINE} !important; background: #FFFFFF !important; background-color: #FFFFFF !important; color: {NAVY} !important; white-space: nowrap !important; }}
         .stMain [data-testid="stButton"] button p, .stMain [data-testid="stButton"] button span, .stMain [data-testid="stFormSubmitButton"] button p, .stMain [data-testid="stFormSubmitButton"] button span {{ color: {NAVY} !important; white-space: nowrap !important; }}
-        .stMain [data-testid="stButton"] button:hover, .stMain [data-testid="stFormSubmitButton"] button:hover {{ background: {GOLD} !important; background-color: {GOLD} !important; color: {NAVY} !important; }}
-        .stMain [data-testid="stButton"] button[kind="primary"], .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] {{ background: {NAVY} !important; background-color: {NAVY} !important; color: {CREAM} !important; border: 1px solid {NAVY} !important; border-top: 2px solid {GOLD} !important; }}
+        .stMain [data-testid="stButton"] button:hover, .stMain [data-testid="stFormSubmitButton"] button:hover {{ background: {WARNING} !important; background-color: {WARNING} !important; color: {NAVY} !important; }}
+        .stMain [data-testid="stButton"] button[kind="primary"], .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] {{ background: {NAVY} !important; background-color: {NAVY} !important; color: {CREAM} !important; border: 1px solid {NAVY} !important; border-top: 2px solid {WARNING} !important; }}
         .stMain [data-testid="stButton"] button[kind="primary"] p, .stMain [data-testid="stButton"] button[kind="primary"] span, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] p, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] span {{ color: {CREAM} !important; }}
-        .stMain [data-testid="stButton"] button[kind="primary"]:hover, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover {{ background: {GOLD} !important; background-color: {GOLD} !important; color: {NAVY} !important; border-color: {GOLD} !important; }}
+        .stMain [data-testid="stButton"] button[kind="primary"]:hover, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover {{ background: {WARNING} !important; background-color: {WARNING} !important; color: {NAVY} !important; border-color: {WARNING} !important; }}
         .stMain [data-testid="stButton"] button[kind="primary"]:hover p, .stMain [data-testid="stButton"] button[kind="primary"]:hover span, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover p, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover span {{ color: {NAVY} !important; }}
-        .saarthi-callout {{ display: flex; align-items: flex-start; gap: 10px; padding: 11px 14px; margin: 6px 0; border: 1px solid {LINE}; border-left: 4px solid {BLUE}; background: #FAF7F0 !important; color: {TEXT} !important; font-size: 12.5px; line-height: 1.45; }}
+        .saarthi-callout {{ display: flex; align-items: flex-start; gap: 10px; padding: 11px 14px; margin: 6px 0; border: 1px solid {LINE}; border-left: 4px solid {BLUE}; background: #F3F5F6 !important; color: {TEXT} !important; font-size: 12.5px; line-height: 1.45; }}
         .saarthi-callout-body {{ display: flex; flex-direction: column; gap: 2px; color: {TEXT} !important; }}
         .saarthi-callout-body b {{ font: 600 10.5px 'Inter', sans-serif; letter-spacing: 0.12em; text-transform: uppercase; color: {NAVY}; }}
         .saarthi-callout-body span {{ color: {TEXT} !important; font-size: 12.5px; }}
         .saarthi-callout-mark {{ font: 700 10px 'Inter', sans-serif; line-height: 1.5; border: 1px solid currentColor; border-radius: 50%; width: 1.2rem; height: 1.2rem; text-align: center; flex: none; margin-top: 1px; }}
-        .saarthi-callout-info {{ border-left-color: #2F5F9E; background: #F2F6FA !important; }}
-        .saarthi-callout-info .saarthi-callout-mark, .saarthi-callout-info .saarthi-callout-body b {{ color: #2F5F9E; }}
-        .saarthi-callout-success {{ border-left-color: #1E6B55; background: #F0F7F4 !important; }}
-        .saarthi-callout-success .saarthi-callout-mark, .saarthi-callout-success .saarthi-callout-body b {{ color: #1E6B55; }}
-        .saarthi-callout-warning {{ border-left-color: {GOLD}; background: #FAF4E4 !important; }}
-        .saarthi-callout-warning .saarthi-callout-mark, .saarthi-callout-warning .saarthi-callout-body b {{ color: #9A6410; }}
-        .saarthi-callout-error {{ border-left-color: #A3262F; background: #FDF2F3 !important; }}
-        .saarthi-callout-error .saarthi-callout-mark, .saarthi-callout-error .saarthi-callout-body b {{ color: #A3262F; }}
-        [data-testid="stAlert"], [data-testid="stAlert"] > div, [data-testid="stAlertContainer"], [data-baseweb="notification"], div[role="alert"] {{ background: #FAF7F0 !important; background-color: #FAF7F0 !important; color: {TEXT} !important; border: 1px solid {LINE} !important; border-left: 4px solid {GOLD} !important; border-radius: 0px !important; }}
+        .saarthi-callout-info {{ border-left-color: #5C7380; background: #F2F6FA !important; }}
+        .saarthi-callout-info .saarthi-callout-mark, .saarthi-callout-info .saarthi-callout-body b {{ color: #5C7380; }}
+        .saarthi-callout-success {{ border-left-color: #238C78; background: #F0F7F4 !important; }}
+        .saarthi-callout-success .saarthi-callout-mark, .saarthi-callout-success .saarthi-callout-body b {{ color: #238C78; }}
+        .saarthi-callout-warning {{ border-left-color: {WARNING}; background: {WARNING_BG} !important; }}
+        .saarthi-callout-warning .saarthi-callout-mark, .saarthi-callout-warning .saarthi-callout-body b {{ color: #E58A35; }}
+        .saarthi-callout-error {{ border-left-color: #D9483B; background: #FDF2F3 !important; }}
+        .saarthi-callout-error .saarthi-callout-mark, .saarthi-callout-error .saarthi-callout-body b {{ color: #D9483B; }}
+        [data-testid="stAlert"], [data-testid="stAlert"] > div, [data-testid="stAlertContainer"], [data-baseweb="notification"], div[role="alert"] {{ background: #F3F5F6 !important; background-color: #F3F5F6 !important; color: {TEXT} !important; border: 1px solid {LINE} !important; border-left: 4px solid {CRIMSON} !important; border-radius: 0px !important; }}
         [data-testid="stAlert"] *, [data-testid="stAlertContainer"] *, [data-baseweb="notification"] *, div[role="alert"] * {{ color: {TEXT} !important; background-color: transparent !important; }}
         .stApp [data-baseweb="select"], .stApp [data-baseweb="select"] > div, .stApp [data-baseweb="input"], .stApp [data-baseweb="input"] > div, .stApp [data-baseweb="base-input"], .stApp [data-baseweb="textarea"], .stApp [data-baseweb="textarea"] > div, .stApp [data-testid="stNumberInputContainer"], .stApp input, .stApp textarea {{ border-radius: 0px !important; border-color: {INPUT_LINE} !important; background: #FFFFFF !important; background-color: #FFFFFF !important; color: {TEXT} !important; -webkit-text-fill-color: {TEXT} !important; caret-color: {NAVY} !important; }}
         .stApp [data-baseweb="select"] span, .stApp [data-baseweb="select"] div, .stApp [data-testid="stNumberInput"] input, .stApp [data-testid="stNumberInput"] button {{ color: {TEXT} !important; background: #FFFFFF !important; background-color: #FFFFFF !important; }}
@@ -292,19 +292,19 @@ def command_styles():
         body [data-baseweb="popover"], body [data-baseweb="popover"] > div, body [data-baseweb="menu"], body ul[role="listbox"], body li[role="option"], body [data-testid="stSelectboxVirtualDropdown"] {{ background: #FFFFFF !important; background-color: #FFFFFF !important; color: {TEXT} !important; border-radius: 0px !important; }}
         body li[role="option"] *, body [data-baseweb="menu"] * {{ color: {TEXT} !important; }}
         body li[role="option"]:hover, body li[role="option"][aria-selected="true"] {{ background: {IVORY} !important; background-color: {IVORY} !important; color: {NAVY} !important; font-weight: 600 !important; }}
-        body [data-testid="stToast"], body [data-testid="stToast"] > div {{ background: {NAVY} !important; background-color: {NAVY} !important; color: {CREAM} !important; border: 1px solid {GOLD} !important; border-top: 3px solid {GOLD} !important; border-radius: 0px !important; }}
+        body [data-testid="stToast"], body [data-testid="stToast"] > div {{ background: {NAVY} !important; background-color: {NAVY} !important; color: {CREAM} !important; border: 1px solid {LINE} !important; border-top: 3px solid {LINE} !important; border-radius: 0px !important; }}
         body [data-testid="stToast"] * {{ color: {CREAM} !important; }}
-        .stApp [data-baseweb="tag"] {{ background: {NAVY} !important; background-color: {NAVY} !important; color: {CREAM} !important; border-radius: 0px !important; border: 1px solid {GOLD} !important; }}
+        .stApp [data-baseweb="tag"] {{ background: {NAVY} !important; background-color: {NAVY} !important; color: {CREAM} !important; border-radius: 0px !important; border: 1px solid {LINE} !important; }}
         .stApp [data-baseweb="tag"] span, .stApp [data-baseweb="tag"] svg {{ color: {CREAM} !important; fill: {CREAM} !important; background: transparent !important; }}
         .stMain label p, .stMain [data-testid="stWidgetLabel"] p, .stMain [data-testid="stCheckbox"] label span, .stMain [data-testid="stCheckbox"] p {{ font: 600 10.5px 'Inter', sans-serif !important; letter-spacing: 0.12em !important; text-transform: uppercase !important; color: {TEXT} !important; }}
         .stMain [data-testid="stRadio"] label span, .stMain [data-testid="stRadio"] p, .stMain [data-testid="stSlider"] * {{ color: {TEXT} !important; }}
         [data-testid="stTabs"] [data-baseweb="tab-list"] {{ gap: 2px !important; border-bottom: 1px solid {LINE} !important; background: transparent !important; }}
         [data-testid="stTabs"] [data-baseweb="tab"] {{ background: transparent !important; border: 0 !important; border-bottom: 3px solid transparent !important; font: 600 12px 'Inter', sans-serif !important; letter-spacing: 0.06em !important; text-transform: uppercase !important; color: {MUTED} !important; padding: 10px 14px !important; }}
         [data-testid="stTabs"] [data-baseweb="tab"] p, [data-testid="stTabs"] [data-baseweb="tab"] span {{ color: {MUTED} !important; }}
-        [data-testid="stTabs"] [aria-selected="true"], [data-testid="stTabs"] [aria-selected="true"] p, [data-testid="stTabs"] [aria-selected="true"] span {{ color: {NAVY} !important; border-bottom-color: {GOLD} !important; font-weight: 600 !important; }}
-        details[data-testid="stExpander"], details[data-testid="stExpander"] > div {{ background: #FFFFFF !important; background-color: #FFFFFF !important; border: 1px solid {LINE} !important; border-top: 2px solid {GOLD} !important; border-radius: 0px !important; color: {TEXT} !important; }}
+        [data-testid="stTabs"] [aria-selected="true"], [data-testid="stTabs"] [aria-selected="true"] p, [data-testid="stTabs"] [aria-selected="true"] span {{ color: {NAVY} !important; border-bottom-color: {WARNING} !important; font-weight: 600 !important; }}
+        details[data-testid="stExpander"], details[data-testid="stExpander"] > div {{ background: #FFFFFF !important; background-color: #FFFFFF !important; border: 1px solid {LINE} !important; border-top: 2px solid {WARNING} !important; border-radius: 0px !important; color: {TEXT} !important; }}
         details[data-testid="stExpander"] summary, details[data-testid="stExpander"] summary p, details[data-testid="stExpander"] summary span, details[data-testid="stExpander"] summary svg {{ font: 600 12px 'Inter', sans-serif !important; letter-spacing: 0.05em !important; color: {NAVY} !important; fill: {NAVY} !important; background: #FFFFFF !important; background-color: #FFFFFF !important; }}
-        .royal {{ position: relative; background: {NAVY}; color: {CREAM}; overflow: hidden; border-bottom: 4px double {GOLD}; margin-bottom: 8px; }}
+        .royal {{ position: relative; background: {NAVY}; color: {CREAM}; overflow: hidden; border-bottom: 1px solid {LINE}; margin-bottom: 8px; }}
         .royal .pat {{ position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }}
         .royal .hd {{ position: relative; max-width: 1400px; margin: 0 auto; padding: 20px 28px 16px; }}
         .royal .row {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }}
@@ -315,31 +315,31 @@ def command_styles():
         .royal .pills span {{ background: none; border: 0; color: {NAVY_MUTED}; font: 500 12px 'Inter', sans-serif; letter-spacing: .06em; padding: 9px 15px; }}
         .royal .pills span.on {{ background: {CREAM}; color: {NAVY}; font-weight: 600; }}
         .royal h1 {{ font: 600 36px/1.1 'Playfair Display', serif !important; margin: 18px 0 0 !important; color: {CREAM} !important; }}
-        .royal .chip {{ font: 600 10.5px 'Inter', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: {GOLD_LIGHT}; border: 1px solid #C09A4888; padding: 6px 10px; margin-left: 12px; vertical-align: middle; display: inline-block; }}
+        .royal .chip {{ font: 600 10.5px 'Inter', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: {GOLD_LIGHT}; border: 1px solid #E1E6E988; padding: 6px 10px; margin-left: 12px; vertical-align: middle; display: inline-block; }}
         .royal .kp {{ display: grid; grid-template-columns: repeat(5, minmax(100px, 1fr)); border-top: 1px solid {GOLD}; min-width: min(560px, 100%); margin-top: 10px; }}
-        .royal .kp div {{ padding: 10px 12px 0 0; margin-right: 12px; border-right: 1px solid #C09A4855; }}
+        .royal .kp div {{ padding: 10px 12px 0 0; margin-right: 12px; border-right: 1px solid #E1E6E955; }}
         .royal .kp div:last-child {{ border-right: 0; margin-right: 0; }}
         .royal .kp .n {{ font: 600 30px 'Playfair Display', serif; line-height: 1; color: {CREAM}; }}
         .royal .kp .l {{ font: 500 10px 'Inter', sans-serif; letter-spacing: .12em; text-transform: uppercase; color: {NAVY_MUTED}; margin-top: 6px; }}
-        .royal .demo-strip {{ display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 16px; padding-top: 12px; border-top: 1px solid #C09A4855; }}
-        .royal .demo-badge {{ border: 1px solid #C09A48aa; color: {CREAM}; font: 600 11px 'Inter', sans-serif; letter-spacing: .06em; padding: 6px 12px; text-transform: uppercase; }}
-        .royal .demo-badge.on {{ background: {GOLD}; color: {NAVY}; }}
+        .royal .demo-strip {{ display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 16px; padding-top: 12px; border-top: 1px solid #E1E6E955; }}
+        .royal .demo-badge {{ border: 1px solid #E1E6E9aa; color: {CREAM}; font: 600 11px 'Inter', sans-serif; letter-spacing: .06em; padding: 6px 12px; text-transform: uppercase; }}
+        .royal .demo-badge.on {{ background: {WARNING}; color: {NAVY}; }}
         .royal .ph {{ margin-left: auto; font: 500 11px ui-monospace, Menlo, monospace; letter-spacing: .06em; color: {NAVY_MUTED}; }}
         .royal .ph b {{ color: {GOLD_LIGHT}; }}
         .eb {{ font: 600 11px 'Inter', sans-serif; letter-spacing: .18em; text-transform: uppercase; color: {EYEBROW}; }}
-        .eb.live {{ color: #1E6B55; }}
+        .eb.live {{ color: #238C78; }}
         .saarthi-heading {{ margin: 0; }}
         .saarthi-title {{ font: 600 22px/1.2 'Playfair Display', serif; color: {NAVY}; margin-top: 4px; }}
         .saarthi-description {{ color: {MUTED}; font-size: 12.5px; line-height: 1.45; margin-top: 4px; }}
-        .saarthi-notice {{ display: flex; gap: 10px; align-items: flex-start; border: 1px solid {LINE}; border-left: 3px solid {GOLD}; background: {IVORY}; padding: 9px 12px; color: {TEXT}; font-size: 12.5px; line-height: 1.45; }}
-        .saarthi-notice-caution {{ color: #A3262F; border-color: #A3262F66; border-left: 3px solid #A3262F; background: #FDF2F3; }}
+        .saarthi-notice {{ display: flex; gap: 10px; align-items: flex-start; border: 1px solid {LINE}; border-left: 3px solid {WARNING}; background: {IVORY}; padding: 9px 12px; color: {TEXT}; font-size: 12.5px; line-height: 1.45; }}
+        .saarthi-notice-caution {{ color: #D9483B; border-color: #D9483B66; border-left: 3px solid #D9483B; background: #FDF2F3; }}
         .saarthi-notice-mark {{ font: 600 10px 'Inter', sans-serif; line-height: 1.45; border: 1px solid currentColor; border-radius: 50%; width: 1.15rem; height: 1.15rem; text-align: center; flex: none; color: {EYEBROW}; }}
-        .saarthi-notice-caution .saarthi-notice-mark {{ color: #A3262F; }}
+        .saarthi-notice-caution .saarthi-notice-mark {{ color: #D9483B; }}
         .saarthi-metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: 12px; }}
-        .saarthi-metric {{ border: 1px solid {LINE}; border-top: 3px solid {GOLD}; background: #FFFFFF; padding: 14px 16px; min-width: 0; }}
+        .saarthi-metric {{ border: 1px solid {LINE}; border-top: 3px solid {LINE}; background: #FFFFFF; padding: 14px 16px; min-width: 0; }}
         .saarthi-metric-value {{ font: 600 30px/1 'Playfair Display', serif; font-variant-numeric: tabular-nums; color: {NAVY}; }}
         .saarthi-metric-label {{ color: {MUTED}; font: 600 10.5px 'Inter', sans-serif; letter-spacing: 0.12em; text-transform: uppercase; line-height: 1.35; margin-top: 7px; }}
-        .saarthi-map-header {{ background: {NAVY}; border-top: 3px solid {GOLD}; padding: 14px 18px 10px; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }}
+        .saarthi-map-header {{ background: {NAVY}; border-top: 3px solid {LINE}; padding: 14px 18px 10px; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }}
         .saarthi-map-header h3 {{ font: 600 20px 'Playfair Display', serif !important; color: {CREAM} !important; margin: 4px 0 0 !important; }}
         .saarthi-map-header .sub {{ font-size: 12px; color: {NAVY_MUTED}; }}
         .saarthi-legend {{ background: {NAVY}; color: {NAVY_MUTED}; font-size: 11.5px; line-height: 1.7; padding: 10px 18px 14px; display: flex; flex-wrap: wrap; gap: 16px; border-bottom: 2px solid {GOLD}; }}
@@ -348,40 +348,40 @@ def command_styles():
         table.saarthi-scan thead tr, table.saarthi-requests thead tr {{ background: {IVORY} !important; border-bottom: 2px solid {LINE} !important; }}
         table.saarthi-scan th, table.saarthi-requests th {{ font: 600 10.5px 'Inter', sans-serif !important; letter-spacing: 0.1em !important; text-transform: uppercase !important; color: {MUTED} !important; text-align: left !important; padding: 10px 14px !important; border: none !important; border-bottom: 2px solid {LINE} !important; white-space: nowrap !important; background: {IVORY} !important; }}
         table.saarthi-scan td, table.saarthi-requests td {{ padding: 10px 14px !important; border: none !important; border-bottom: 1px solid {LINE} !important; color: {TEXT} !important; background: #FFFFFF !important; vertical-align: middle !important; line-height: 1.45 !important; }}
-        table.saarthi-scan tbody tr:hover td, table.saarthi-requests tbody tr:hover td {{ background: #FAF7F0 !important; }}
+        table.saarthi-scan tbody tr:hover td, table.saarthi-requests tbody tr:hover td {{ background: #F3F5F6 !important; }}
         .saarthi-scan td.saarthi-nowrap, .saarthi-requests td.saarthi-nowrap {{ white-space: nowrap !important; }}
-        .inc {{ border: 1px solid {LINE}; border-top: 3px solid #A3262F; background: #FFFFFF; padding: 14px 16px; margin-top: 12px; }}
-        .inc.HIGH {{ border-top-color: #C98A1B; }}
-        .inc.MEDIUM, .inc.MODERATE {{ border-top-color: #7C8CA6; }}
-        .inc.LOW {{ border-top-color: #1E6B55; }}
+        .inc {{ border: 1px solid {LINE}; border-top: 3px solid #D9483B; background: #FFFFFF; padding: 14px 16px; margin-top: 12px; }}
+        .inc.HIGH {{ border-top-color: #E58A35; }}
+        .inc.MEDIUM, .inc.MODERATE {{ border-top-color: #75818A; }}
+        .inc.LOW {{ border-top-color: #238C78; }}
         .ih {{ display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font: 600 11px ui-monospace, Menlo, monospace; color: {MUTED}; margin-bottom: 6px; }}
         .ih-left {{ display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
         .tg {{ display: inline-block !important; white-space: nowrap !important; line-height: 1.2 !important; font: 600 10px 'Inter', sans-serif !important; letter-spacing: .1em !important; text-transform: uppercase !important; padding: 3px 8px !important; border: 1px solid currentColor !important; background: #FFFFFF !important; }}
-        .tg.CRITICAL {{ color: #A3262F !important; border-color: #A3262F !important; background: #FDF2F3 !important; }}
-        .tg.HIGH {{ color: #9A6410 !important; border-color: #9A6410 !important; background: #FAF4E4 !important; }}
-        .tg.MEDIUM, .tg.MODERATE {{ color: #5B6577 !important; border-color: #5B6577 !important; }}
-        .tg.LOW, .tg.RESOLVED {{ color: #1E6B55 !important; border-color: #1E6B55 !important; background: #F0F7F4 !important; }}
-        .tg.FLOOD, .tg.WATER, .tg.MEDICAL {{ color: #2F5F9E !important; border-color: #2F5F9E !important; background: #F2F6FA !important; }}
-        .tg.HEATWAVE, .tg.CYCLONE, .tg.RESCUE, .tg.SHELTER, .tg.FOOD {{ color: #B4501E !important; border-color: #B4501E !important; background: #FCF4F0 !important; }}
+        .tg.CRITICAL {{ color: #D9483B !important; border-color: #D9483B !important; background: #FDF2F3 !important; }}
+        .tg.HIGH {{ color: #E58A35 !important; border-color: #E58A35 !important; background: #FBF3EA !important; }}
+        .tg.MEDIUM, .tg.MODERATE {{ color: #75818A !important; border-color: #75818A !important; }}
+        .tg.LOW, .tg.RESOLVED {{ color: #238C78 !important; border-color: #238C78 !important; background: #F0F7F4 !important; }}
+        .tg.FLOOD, .tg.WATER, .tg.MEDICAL {{ color: #5C7380 !important; border-color: #5C7380 !important; background: #F2F6FA !important; }}
+        .tg.HEATWAVE, .tg.CYCLONE, .tg.RESCUE, .tg.SHELTER, .tg.FOOD {{ color: #E58A35 !important; border-color: #E58A35 !important; background: #FBF3EA !important; }}
         .inc h3 {{ font: 600 17px 'Playfair Display', serif !important; margin: 6px 0 4px !important; color: {NAVY} !important; }}
-        .inc p {{ margin: 0 0 10px; font-size: 12.5px; color: #3B4557; line-height: 1.45; }}
+        .inc p {{ margin: 0 0 10px; font-size: 12.5px; color: #263238; line-height: 1.45; }}
         .ch {{ display: flex; gap: 6px; flex-wrap: wrap; }}
         .ch span {{ display: inline-block; font: 500 11px 'Inter', sans-serif; border: 1px solid {LINE}; background: {IVORY}; padding: 4px 8px; color: {TEXT}; white-space: nowrap; }}
-        .ch .ai {{ color: #1E6B55; border-color: #1E6B5566; background: #F0F7F4; font-weight: 600; }}
+        .ch .ai {{ color: #238C78; border-color: #238C7866; background: #F0F7F4; font-weight: 600; }}
         .if {{ display: flex; justify-content: space-between; font-size: 11px; color: {MUTED}; margin-top: 10px; flex-wrap: wrap; gap: 6px; }}
-        .bar {{ height: 6px; background: #EAE4D3; margin: 6px 0 14px; }}
-        .bar i {{ display: block; height: 100%; background: #2F5F9E; }}
-        .bar i.hot {{ background: #A3262F; }}
+        .bar {{ height: 6px; background: #E1E6E9; margin: 6px 0 14px; }}
+        .bar i {{ display: block; height: 100%; background: #5C7380; }}
+        .bar i.hot {{ background: #D9483B; }}
         .bh {{ display: flex; justify-content: space-between; font-size: 12.5px; gap: 10px; color: {TEXT}; }}
         .cf {{ border: 1px solid {LINE}; padding: 12px 14px; margin-bottom: 10px; background: #FFFFFF; }}
         .cf b {{ display: block; font: 600 11px 'Inter', sans-serif; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 5px; }}
         .cf p {{ margin: 0 0 4px; font-size: 13px; color: {TEXT}; }}
         .cf small {{ color: {MUTED}; font-size: 11.5px; }}
-        .cf.bad {{ border-color: #A3262F66; background: #FDF2F3; border-left: 4px solid #A3262F; }}
-        .cf.bad b {{ color: #A3262F; }}
-        .cf.good {{ border-color: #1E6B5566; background: #F0F7F4; border-left: 4px solid #1E6B55; }}
-        .cf.good b {{ color: #1E6B55; }}
-        .bc {{ border: 1px solid {LINE}; border-top: 3px solid {GOLD}; padding: 14px 16px; margin-bottom: 12px; background: #FFFFFF; }}
+        .cf.bad {{ border-color: #D9483B66; background: #FDF2F3; border-left: 4px solid #D9483B; }}
+        .cf.bad b {{ color: #D9483B; }}
+        .cf.good {{ border-color: #238C7866; background: #F0F7F4; border-left: 4px solid #238C78; }}
+        .cf.good b {{ color: #238C78; }}
+        .bc {{ border: 1px solid {LINE}; border-top: 3px solid {LINE}; padding: 14px 16px; margin-bottom: 12px; background: #FFFFFF; }}
         .bc .bt2 {{ display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font: 600 10.5px 'Inter', sans-serif; letter-spacing: .1em; text-transform: uppercase; color: {EYEBROW}; margin-bottom: 8px; }}
         .bc p {{ margin: 5px 0; font: 400 13.5px/1.65 'Noto Sans Devanagari', 'Inter', sans-serif; color: {TEXT}; }}
         .bc b {{ color: {NAVY}; }}
@@ -449,7 +449,7 @@ def command_bar(page, live):
     page_up = html.escape(page.upper())
 
     st.markdown(
-        f"""<div class="royal"><svg class="pat" viewBox="0 0 1440 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><pattern id="jl" width="64" height="64" patternUnits="userSpaceOnUse"><path d="M32 2L62 32L32 62L2 32Z" fill="none" stroke="#C09A48" stroke-opacity=".2"/><circle cx="32" cy="32" r="9" fill="none" stroke="#C09A48" stroke-opacity=".2"/><path d="M0 0L64 64M64 0L0 64" stroke="#C09A48" stroke-opacity=".06"/></pattern><line id="sp" x1="1250" y1="-90" x2="1250" y2="450"/></defs><rect width="1440" height="360" fill="url(#jl)"/><g fill="none" stroke="#C09A48" stroke-opacity=".34"><circle cx="1250" cy="180" r="270" stroke-width="2"/><circle cx="1250" cy="180" r="245"/><circle cx="1250" cy="180" r="48" stroke-width="2"/><use href="#sp"/><use href="#sp" transform="rotate(15 1250 180)"/><use href="#sp" transform="rotate(30 1250 180)"/><use href="#sp" transform="rotate(45 1250 180)"/><use href="#sp" transform="rotate(60 1250 180)"/><use href="#sp" transform="rotate(75 1250 180)"/><use href="#sp" transform="rotate(90 1250 180)"/><use href="#sp" transform="rotate(105 1250 180)"/><use href="#sp" transform="rotate(120 1250 180)"/><use href="#sp" transform="rotate(135 1250 180)"/><use href="#sp" transform="rotate(150 1250 180)"/><use href="#sp" transform="rotate(165 1250 180)"/></g></svg><header class="hd"><div class="row"><div class="brand"><svg width="44" height="44" viewBox="0 0 48 48" aria-hidden="true" fill="none" stroke="#C09A48" stroke-width="1.6"><circle cx="24" cy="24" r="21"/><circle cx="24" cy="24" r="5"/><line x1="24" y1="3" x2="24" y2="45"/><line x1="3" y1="24" x2="45" y2="24"/><line x1="9.2" y1="9.2" x2="38.8" y2="38.8"/><line x1="38.8" y1="9.2" x2="9.2" y2="38.8"/><line x1="13.5" y1="4.5" x2="34.5" y2="43.5"/><line x1="34.5" y1="4.5" x2="13.5" y2="43.5"/></svg><div><div class="bn">SAARTHI</div><div class="bt">ECC · Multi-agent coordinator (PS-03)</div></div></div><div class="pills">{pills_str}</div></div><div class="row" style="align-items:flex-end"><h1>{page_esc}<span class="chip">All agents online</span></h1><div class="kp">{kpi_html}</div></div><div class="demo-strip"><span class="demo-badge on">{page_esc}</span><span class="demo-badge">Plan v{plan.get('version', 1)} · {plan.get('solver', 'Active')}</span><span class="ph">DEMO CONTROLS · Mode: <b>{state}</b> | Active View: <b>{page_up}</b></span></div></header></div>""",
+        f"""<div class="royal"><svg class="pat" viewBox="0 0 1440 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><pattern id="jl" width="64" height="64" patternUnits="userSpaceOnUse"><path d="M32 2L62 32L32 62L2 32Z" fill="none" stroke="#E1E6E9" stroke-opacity=".2"/><circle cx="32" cy="32" r="9" fill="none" stroke="#E1E6E9" stroke-opacity=".2"/><path d="M0 0L64 64M64 0L0 64" stroke="#E1E6E9" stroke-opacity=".06"/></pattern><line id="sp" x1="1250" y1="-90" x2="1250" y2="450"/></defs><rect width="1440" height="360" fill="url(#jl)"/><g fill="none" stroke="#E1E6E9" stroke-opacity=".34"><circle cx="1250" cy="180" r="270" stroke-width="2"/><circle cx="1250" cy="180" r="245"/><circle cx="1250" cy="180" r="48" stroke-width="2"/><use href="#sp"/><use href="#sp" transform="rotate(15 1250 180)"/><use href="#sp" transform="rotate(30 1250 180)"/><use href="#sp" transform="rotate(45 1250 180)"/><use href="#sp" transform="rotate(60 1250 180)"/><use href="#sp" transform="rotate(75 1250 180)"/><use href="#sp" transform="rotate(90 1250 180)"/><use href="#sp" transform="rotate(105 1250 180)"/><use href="#sp" transform="rotate(120 1250 180)"/><use href="#sp" transform="rotate(135 1250 180)"/><use href="#sp" transform="rotate(150 1250 180)"/><use href="#sp" transform="rotate(165 1250 180)"/></g></svg><header class="hd"><div class="row"><div class="brand"><svg width="44" height="44" viewBox="0 0 48 48" aria-hidden="true" fill="none" stroke="#E1E6E9" stroke-width="1.6"><circle cx="24" cy="24" r="21"/><circle cx="24" cy="24" r="5"/><line x1="24" y1="3" x2="24" y2="45"/><line x1="3" y1="24" x2="45" y2="24"/><line x1="9.2" y1="9.2" x2="38.8" y2="38.8"/><line x1="38.8" y1="9.2" x2="9.2" y2="38.8"/><line x1="13.5" y1="4.5" x2="34.5" y2="43.5"/><line x1="34.5" y1="4.5" x2="13.5" y2="43.5"/></svg><div><div class="bn">SAARTHI</div><div class="bt">ECC · Multi-agent coordinator (PS-03)</div></div></div><div class="pills">{pills_str}</div></div><div class="row" style="align-items:flex-end"><h1>{page_esc}<span class="chip">All agents online</span></h1><div class="kp">{kpi_html}</div></div><div class="demo-strip"><span class="demo-badge on">{page_esc}</span><span class="demo-badge">Plan v{plan.get('version', 1)} · {plan.get('solver', 'Active')}</span><span class="ph">DEMO CONTROLS · Mode: <b>{state}</b> | Active View: <b>{page_up}</b></span></div></header></div>""",
         unsafe_allow_html=True)
 
 
@@ -560,7 +560,7 @@ def render_deck(layers, height, key):
     """Draw one map inside the Royal Navy map frame."""
     st.markdown(
         '<div class="saarthi-map-header">'
-        '<div><div class="eb" style="color:#D4B068">Coastal Maharashtra · MMR &amp; Konkan</div>'
+        '<div><div class="eb" style="color:#C5D0D6">Coastal Maharashtra · MMR &amp; Konkan</div>'
         '<h3>Live operations map</h3></div>'
         '<div class="sub">Interactive geospatial layer · hover markers for recorded details</div>'
         '</div>',
@@ -594,9 +594,9 @@ def map_legend(items):
 def _place_labels(frame, text_column, offset):
     """Names already stored on the rows. Nothing here creates a new place."""
     return pdk.Layer("TextLayer", frame, get_position="[lon, lat]", get_text=text_column, get_size=12,
-                     get_color=[12, 27, 54, 245], get_text_anchor="'middle'", get_alignment_baseline="'bottom'",
+                     get_color=[38, 50, 56, 235], get_text_anchor="'middle'", get_alignment_baseline="'bottom'",
                      get_pixel_offset=offset, billboard=True, font_family="sans-serif", background=True,
-                     get_background_color=[250, 247, 240, 225], background_padding=[4, 2, 4, 2], pickable=False)
+                     get_background_color=[255, 255, 255, 220], background_padding=[4, 2, 4, 2], pickable=False)
 
 
 def draw_map(layers, height=480, key="map"):  # map with switchable layers
@@ -625,22 +625,22 @@ def draw_map(layers, height=480, key="map"):  # map with switchable layers
         legend.extend((_rgb_hex(ROAD_RGB[name]), name.capitalize()) for name in ("OPEN", "SLOW", "BLOCKED"))
     if "Hospitals" in shown:  # small dots: purple with free beds, grey when full
         h = df(data.read("SELECT * FROM hospitals"))  # hospitals
-        h["color"] = h["available_beds"].apply(lambda b: [123, 92, 196] if b > 0 else [124, 140, 166])  # grey when full
+        h["color"] = h["available_beds"].apply(lambda b: [35, 140, 120] if b > 0 else [117, 129, 138])  # grey when full
         h["label"] = h["name"] + ": " + h["available_beds"].astype(str) + "/" + h["total_beds"].astype(str) + " beds free"
         deck_layers.append(pdk.Layer("ScatterplotLayer", h, get_position="[lon, lat]", get_fill_color="color",
                                      get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=7,
                                      radius_units=_PIXELS, line_width_min_pixels=1.5, pickable=True))
         labels.append(_place_labels(h, "name", [0, 16]))
-        legend.append(("#7B5CC4", "Hospital with free beds"))
-        legend.append(("#7C8CA6", "Hospital full"))
-    if "Supply hubs" in shown:  # gold-orange markers matching HTML (#F29E1F)
+        legend.append(("#238C78", "Hospital with free beds"))
+        legend.append(("#75818A", "Hospital full"))
+    if "Supply hubs" in shown:  # navy markers, distinct from orange shipments
         hb = df(data.read("SELECT * FROM hubs"))  # hubs
         hb["label"] = hb["name"] + " (supply hub)"  # hover text
-        deck_layers.append(pdk.Layer("ScatterplotLayer", hb, get_position="[lon, lat]", get_fill_color=[242, 158, 31],
+        deck_layers.append(pdk.Layer("ScatterplotLayer", hb, get_position="[lon, lat]", get_fill_color=[20, 43, 59],
                                      get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=8,
                                      radius_units=_PIXELS, line_width_min_pixels=2, pickable=True))
         labels.append(_place_labels(hb, "name", [0, 28]))
-        legend.append(("#F29E1F", "Supply hub"))
+        legend.append(("#142B3B", "Supply hub"))
     if "SOS requests" in shown:  # small SOS dots
         i = df(data.read("SELECT * FROM incidents WHERE status != 'RESOLVED'"))  # active requests
         if len(i):  # only if any
@@ -655,10 +655,10 @@ def draw_map(layers, height=480, key="map"):  # map with switchable layers
         s = df([x for x in data.shipments_with_positions() if "lat" in x])  # moving ones only
         if len(s):  # only if any
             s["label"] = s["shipment_id"] + ": " + s["qty"].astype(str) + " " + s["item"] + " to " + s["destination"]
-            deck_layers.append(pdk.Layer("ScatterplotLayer", s, get_position="[lon, lat]", get_fill_color=[192, 154, 72],
-                                         get_line_color=[12, 27, 54], stroked=True, filled=True, line_width_min_pixels=1.5,
+            deck_layers.append(pdk.Layer("ScatterplotLayer", s, get_position="[lon, lat]", get_fill_color=[229, 138, 53],
+                                         get_line_color=[255, 255, 255], stroked=True, filled=True, line_width_min_pixels=1.5,
                                          get_radius=6, radius_units=_PIXELS, pickable=True))
-        legend.append(("#C09A48", "Shipment on the move"))
+        legend.append(("#E58A35", "Shipment on the move"))
     deck_layers.extend(labels)
     render_deck(deck_layers, height, f"{key}_deck")
     map_legend(legend)
@@ -686,7 +686,7 @@ def _render_ripple_svg(origin_zone="Ratnagiri"):
         if pct >= 70:
             return "#D63B45"
         if pct >= 50:
-            return "#F29E1F"
+            return "#E58A35"
         if pct >= 35:
             return "#8FA37E"
         return "#3B8FD0"
@@ -721,19 +721,19 @@ def _render_ripple_svg(origin_zone="Ratnagiri"):
 
     circles_svg = [
         f'<circle cx="95" cy="150" r="12" fill="{col_for(p_prob)}" stroke="#fff" stroke-width="2"/>'
-        f'<text x="95" y="130" text-anchor="middle" font-family="Inter" font-size="11.5" font-weight="600" fill="#0C1B36">'
+        f'<text x="95" y="130" text-anchor="middle" font-family="Inter" font-size="11.5" font-weight="600" fill="#142B3B">'
         f'{html.escape(origin_zone)} {html.escape(p_type)} ({p_prob}%)</text>'
     ]
     for label, pct, cx_n, cy_n in mid_nodes + right_nodes:
         circles_svg.append(
             f'<circle cx="{cx_n}" cy="{cy_n}" r="11" fill="{col_for(pct)}" stroke="#fff" stroke-width="2"/>'
-            f'<text x="{cx_n}" y="{cy_n - 16}" text-anchor="middle" font-family="Inter" font-size="11" font-weight="600" fill="#0C1B36">'
+            f'<text x="{cx_n}" y="{cy_n - 16}" text-anchor="middle" font-family="Inter" font-size="11" font-weight="600" fill="#142B3B">'
             f'{html.escape(label)} ({pct}%)</text>'
         )
 
     st.markdown(
         f'<svg viewBox="0 0 760 295" width="100%" role="img" aria-label="Ripple cascade network">'
-        f'<g stroke="#C09A48" stroke-opacity=".6" stroke-width="1.5">{"".join(lines_svg)}</g>'
+        f'<g stroke="#E1E6E9" stroke-opacity=".6" stroke-width="1.5">{"".join(lines_svg)}</g>'
         f'{"".join(circles_svg)}</svg>'
         '<div class="saarthi-description">Cascade exposure by node · primary origin on the left, connecting corridors in the middle, downstream zone hospitals on the right.</div>',
         unsafe_allow_html=True,
@@ -917,7 +917,7 @@ def page_overview():  # PAGE 1: whole situation — matches Saarthi – Emergenc
                     st.markdown('<div class="eb">24-Hour Risk Telemetry</div>', unsafe_allow_html=True)
                     st.subheader("Risk probability over the last 24 hours")
                     logs = df(data.read("SELECT timestamp, zone, probability FROM risk_logs ORDER BY id"))
-                    line_colours = ["#0C1B36", "#A3262F", "#C09A48", "#2F5F9E", "#1E6B55", "#9A6410", "#7B5CC4"]
+                    line_colours = ["#142B3B", "#D9483B", "#E1E6E9", "#5C7380", "#238C78", "#E58A35", "#238C78"]
                     if logs.empty:
                         st.caption("Recorded risk probability is not available.")
                     else:
@@ -1409,7 +1409,7 @@ def page_network():  # PAGE 5: roads, hospitals, stock (every change is an event
         f"""
         <style>
 
-        .saarthi-road-open {{ color: #6b7280; font-weight: 600; }}
+        .saarthi-road-open {{ color: #75818A; font-weight: 600; }}
         .saarthi-road-slow {{ color: {LEVEL_HEX["High"]}; font-weight: 600; }}
         .saarthi-road-blocked {{ color: {LEVEL_HEX["Critical"]}; font-weight: 600; }}
         </style>
@@ -1482,8 +1482,8 @@ def page_network():  # PAGE 5: roads, hospitals, stock (every change is an event
             st.caption("Recorded free beds and ICU. Saving replaces those recorded numbers.")
             if hospitals:
                 hs = df(hospitals)  # hospitals
-                fig = go.Figure([go.Bar(name="Occupied beds", x=hs["name"], y=hs["total_beds"] - hs["available_beds"], marker_color="#E4DDCC"),
-                                 go.Bar(name="Free beds", x=hs["name"], y=hs["available_beds"], marker_color="#2F5F9E")])  # stacked bars
+                fig = go.Figure([go.Bar(name="Occupied beds", x=hs["name"], y=hs["total_beds"] - hs["available_beds"], marker_color="#C5CED3"),
+                                 go.Bar(name="Free beds", x=hs["name"], y=hs["available_beds"], marker_color="#238C78")])  # stacked bars
                 style_chart(fig)
                 fig.update_layout(barmode="stack", height=280, margin=dict(t=8, b=72, l=8, r=8))
                 fig.update_xaxes(tickangle=-30, automargin=True)
@@ -2017,9 +2017,9 @@ def page_ripple():  # PAGE 10: read-only cascade analysis
             display: inline-block; font-size: 0.72rem; letter-spacing: 0.04em; line-height: 1.3;
             border: 1px solid var(--saarthi-line); padding: 2px 6px;
         }
-        .saarthi-role-primary { color: #A3262F; border-color: #A3262F; }
-        .saarthi-role-secondary { color: #C98A1B; border-color: #C98A1B; }
-        .saarthi-role-extended { color: #9A6410; border-color: #9A6410; }
+        .saarthi-role-primary { color: #D9483B; border-color: #D9483B; }
+        .saarthi-role-secondary { color: #E58A35; border-color: #E58A35; }
+        .saarthi-role-extended { color: #E58A35; border-color: #E58A35; }
         </style>
         """,
         unsafe_allow_html=True)
@@ -2266,7 +2266,7 @@ def page_whatif():  # PAGE 11: hypothetical scenarios, never written to the data
             border: 1px solid var(--saarthi-line); padding: 2px 6px; margin-right: 6px;
         }
         .saarthi-source-recorded { color: var(--saarthi-muted); }
-        .saarthi-source-simulated { color: #9A6410; border-color: #C09A48; background: #FAF4E4; }
+        .saarthi-source-simulated { color: #E58A35; border-color: #E8C49A; background: #FBF3EA; }
         </style>
         """,
         unsafe_allow_html=True)
@@ -3121,9 +3121,9 @@ def page_plan_challenger():  # read-only review of the stored plan
     st.caption(f"RECORDED plan version {result['plan_version']}. Reviewed at {result['reviewed_at']}.")
     counts = result["counts"]
     metric_tiles((
-        ("Confirmed", counts["confirmed"], "#A3262F"),
-        ("Potential", counts["potential"], "#C98A1B"),
-        ("Missing data", counts["missing"], "#5B6577"),
+        ("Confirmed", counts["confirmed"], "#D9483B"),
+        ("Potential", counts["potential"], "#E58A35"),
+        ("Missing data", counts["missing"], "#75818A"),
     ))
     findings = result["findings"]
     if not findings:
@@ -3189,15 +3189,15 @@ def render_nav():
         st.session_state["nav_page"] = "Situation Overview"
     st.sidebar.markdown(
         '<div style="display:flex;align-items:center;gap:10px;padding-bottom:6px;">'
-        '<svg width="32" height="32" viewBox="0 0 48 48" aria-hidden="true" fill="none" stroke="#C09A48" stroke-width="1.8">'
+        '<svg width="32" height="32" viewBox="0 0 48 48" aria-hidden="true" fill="none" stroke="#E1E6E9" stroke-width="1.8">'
         '<circle cx="24" cy="24" r="21"/><circle cx="24" cy="24" r="5"/>'
         '<line x1="24" y1="3" x2="24" y2="45"/><line x1="3" y1="24" x2="45" y2="24"/>'
         '<line x1="9.2" y1="9.2" x2="38.8" y2="38.8"/><line x1="38.8" y1="9.2" x2="9.2" y2="38.8"/>'
         '<line x1="13.5" y1="4.5" x2="34.5" y2="43.5"/><line x1="34.5" y1="4.5" x2="13.5" y2="43.5"/>'
         '</svg>'
         '<div>'
-        '<div style="font:600 18px Georgia,serif;letter-spacing:.24em;color:#F4EEDD;">SAARTHI</div>'
-        '<div style="font:500 9.5px sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#B9C5DC;">ECC · PS-03</div>'
+        '<div style="font:600 18px Georgia,serif;letter-spacing:.24em;color:#F3F5F6;">SAARTHI</div>'
+        '<div style="font:500 9.5px sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#C5D0D6;">ECC · PS-03</div>'
         '</div></div>',
         unsafe_allow_html=True)
     for index, (group, labels) in enumerate(NAV_GROUPS):
