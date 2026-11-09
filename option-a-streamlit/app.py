@@ -40,7 +40,6 @@ import coordinator_agent  # read-only brief across the four agents; it does not 
 # ---------------------------------------------------------------------
 # 1. SETTINGS
 # ---------------------------------------------------------------------
-REFRESH_SECONDS = 10  # live mode re-reads data this often
 LEVEL_HEX = {"Critical": "#D9483B", "High": "#E58A35", "Moderate": "#5C7380", "Low": "#238C78"}  # level colours for charts
 LEVEL_RGB = {"Critical": [217, 72, 59], "High": [229, 138, 53], "Moderate": [92, 115, 128], "Low": [35, 140, 120]}  # same, for the map
 ROAD_RGB = {"OPEN": [117, 129, 138], "SLOW": [229, 138, 53], "BLOCKED": [217, 72, 59]}  # grey, orange, red
@@ -3218,15 +3217,14 @@ def render_nav():
 
 
 choice = render_nav()
-live = st.sidebar.toggle(f"Live mode (refresh every {REFRESH_SECONDS} s)", value=False)  # auto refresh on/off
+live = st.sidebar.toggle("Live status", value=False, key="live_mode")
 sidebar_demos()  # demo buttons
 command_styles()
 command_bar(choice, live)
 render_top_controls()
-if live:
-    st.fragment(PAGES[choice], run_every=REFRESH_SECONDS)()
-else:
-    PAGES[choice]()
+# Draw once. A run_every fragment rebuilt the map, charts and every tab on
+# each tick, so the running indicator never stayed off after the redesign.
+PAGES[choice]()
 st.markdown(
     '<div class="saarthi-foot">Prototype view · simulated data · Team Peaky Coders · AgentX Hackathon</div>',
     unsafe_allow_html=True)
