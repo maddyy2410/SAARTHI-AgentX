@@ -40,41 +40,68 @@ import coordinator_agent  # read-only brief across the four agents; it does not 
 # ---------------------------------------------------------------------
 # 1. SETTINGS
 # ---------------------------------------------------------------------
-LEVEL_HEX = {"Critical": "#D9483B", "High": "#E58A35", "Moderate": "#5C7380", "Low": "#238C78"}  # level colours for charts
-LEVEL_RGB = {"Critical": [217, 72, 59], "High": [229, 138, 53], "Moderate": [92, 115, 128], "Low": [35, 140, 120]}  # same, for the map
-ROAD_RGB = {"OPEN": [117, 129, 138], "SLOW": [229, 138, 53], "BLOCKED": [217, 72, 59]}  # grey, orange, red
-SOS_RGB = {"OPEN": [217, 72, 59], "IN_TRANSIT": [229, 138, 53], "RESOLVED": [35, 140, 120]}  # SOS dot colours
-# Emergency-operations palette. Names stay so the existing layout CSS still resolves.
-NAVY = "#142B3B"
-BLUE = "#5C7380"
-GREEN = "#238C78"
-CRIMSON = "#D9483B"
-AMBER = "#E58A35"
-IVORY = "#F3F5F6"
-GOLD = "#E1E6E9"
-GOLD_LIGHT = "#C5D0D6"
-EYEBROW = "#75818A"
-CREAM = "#F3F5F6"
-NAVY_MUTED = "#C5D0D6"
-CANVAS = IVORY
-RAISED = "#FFFFFF"
-INSET = "#E7ECEE"
+REFRESH_SECONDS = 10  # live mode re-reads data this often
+
+# Saarthi Ripple Emergency Operations Centre Palette
+NAVY = "#102536"          # Deep navy: Sidebar & primary command header
+STEEL = "#193C50"         # Steel blue: Secondary headers & GIS map bar
+RED = "#E74747"           # Alert red: Genuinely critical alerts & emergencies
+ORANGE = "#E6A23C"        # Warning amber: High severity & active warnings
+YELLOW = "#D9A520"        # Moderate yellow: Moderate alerts
+BLUE = "#2B6CB0"          # Low blue: Low severity
+TEAL = "#269B75"          # Operational green: Resolved cases, available resources & safe status
+BG_GREY = "#F2F5F7"       # Soft light grey workspace background
+WHITE = "#FFFFFF"         # Clean card surface
+CHARCOAL = "#1E293B"      # Primary text
+MUTED_GREY = "#64748B"    # Secondary text and labels
+
+# Consistent 5-tier severity colour system (Critical=Red, High=Orange, Moderate=Yellow, Low=Blue, Resolved=Green)
+LEVEL_HEX = {
+    "Critical": RED,
+    "High": ORANGE,
+    "Moderate": YELLOW,
+    "Low": BLUE,
+}
+LEVEL_RGB = {
+    "Critical": [231, 71, 71],
+    "High": [230, 162, 60],
+    "Moderate": [217, 165, 32],
+    "Low": [43, 108, 176],
+}
+ROAD_RGB = {
+    "OPEN": [38, 155, 117],
+    "SLOW": [230, 162, 60],
+    "BLOCKED": [231, 71, 71],
+}
+SOS_RGB = {
+    "OPEN": [231, 71, 71],
+    "IN_TRANSIT": [230, 162, 60],
+    "RESOLVED": [38, 155, 117],
+}
+
+CANVAS = BG_GREY
+RAISED = WHITE
+INSET = "#F8FAFC"
 SIDEBAR = NAVY
-LINE = "#E1E6E9"
-INPUT_LINE = "#D5DDE1"
-TEXT = "#263238"
-MUTED = "#75818A"
-WARNING = "#E58A35"  # pending attention; not a severity level
-WARNING_BORDER = "#E8C49A"
-WARNING_BG = "#FBF3EA"
-EVENT_ICON = {"ROAD_BLOCKED": "⛔", "ROAD_SLOW": "🐢", "ROAD_REOPENED": "✅", "HOSPITAL_CAPACITY_CHANGED": "🏥",
-              "NEW_PATIENTS": "🚑", "RESOURCE_RECEIVED": "📦", "RESOURCE_DEPLETED": "⚠️", "REOPTIMIZED": "🔁",
-              "RISK_UPDATED": "🌀", "TAMPER": "🚨", "INTAKE_SUBMITTED": "📥", "INTAKE_APPROVED": "✅",
-              "INTAKE_REJECTED": "🚫"}  # small symbol per event type in the feed
+LINE = "#E2E8F0"
+TEXT = CHARCOAL
+MUTED = MUTED_GREY
+WARNING = ORANGE
+WARNING_BORDER = "#F3CFA0"
+WARNING_BG = "#FFFDF9"
+
+EVENT_ICON = {
+    "ROAD_BLOCKED": "BLK", "ROAD_SLOW": "SLW", "ROAD_REOPENED": "OPN",
+    "HOSPITAL_CAPACITY_CHANGED": "HSP", "NEW_PATIENTS": "MED",
+    "RESOURCE_RECEIVED": "SUP", "RESOURCE_DEPLETED": "LOW",
+    "REOPTIMIZED": "OPT", "RISK_UPDATED": "RSK", "TAMPER": "SEC",
+    "INTAKE_SUBMITTED": "INT", "INTAKE_APPROVED": "APR", "INTAKE_REJECTED": "REJ",
+    "SYSTEM": "SYS", "MANUAL": "MAN", "ALERT_QUEUED": "ALT", "ALERT_ACKNOWLEDGED": "ACK",
+    "PATIENT_ASSIGNED": "BED", "SHIPMENT_ALLOCATED": "SHP",
+}  # clean 3-letter operational codes (strictly no emojis)
 
 st.set_page_config(
-    page_title="Saarthi – Emergency Command Center",
-    page_icon="🚨",
+    page_title="Saarthi | Disaster Management & Ripple Command Centre",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -87,16 +114,61 @@ def df(rows):  # list of dicts -> pandas table
     return pd.DataFrame(rows)  # pandas does the conversion
 
 
+def status_pill(label, tone="neutral"):
+    """Consistent severity & operational status pill:
+    critical=Red, high/warning=Orange, moderate=Yellow, low=Blue, safe/resolved=Green."""
+    tone_map = {
+        "critical": ("#FEF2F2", "#E74747", "#FECACA"),
+        "high": ("#FFFBEB", "#D97706", "#FDE68A"),
+        "warning": ("#FFFBEB", "#D97706", "#FDE68A"),
+        "moderate": ("#FEFCE8", "#B45309", "#FEF08A"),
+        "low": ("#EFF6FF", "#2B6CB0", "#BFDBFE"),
+        "safe": ("#ECFDF5", "#269B75", "#A7F3D0"),
+        "resolved": ("#ECFDF5", "#269B75", "#A7F3D0"),
+        "navy": ("#F1F5F9", "#102536", "#CBD5E1"),
+        "neutral": ("#F1F5F9", "#64748B", "#E2E8F0"),
+    }
+    bg, fg, border = tone_map.get(str(tone).lower(), tone_map["neutral"])
+    return (
+        f'<span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;'
+        f'border-radius:5px;background:{bg};color:{fg};border:1px solid {border};'
+        f'font-size:10.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;white-space:nowrap;">'
+        f'<span style="width:6px;height:6px;border-radius:50%;background:{fg};display:inline-block;"></span>'
+        f'{html.escape(str(label))}</span>'
+    )
+
+
+def progress_bar_html(label, right_text, pct, tone="teal", badge_text=None):
+    """Render a clean horizontal progress bar for resource allocation, zone severity, and hospital capacity."""
+    colour = {
+        "critical": RED, "red": RED,
+        "high": ORANGE, "orange": ORANGE,
+        "moderate": YELLOW, "yellow": YELLOW,
+        "low": BLUE, "blue": BLUE,
+        "teal": TEAL, "green": TEAL, "safe": TEAL,
+        "navy": STEEL,
+    }.get(str(tone).lower(), TEAL)
+    clamped = min(100, max(0, int(round(pct))))
+    badge = ""
+    if badge_text:
+        badge = " " + status_pill(badge_text, tone)
+    return (
+        '<div class="saarthi-cap-row">'
+        f'<div class="saarthi-cap-head"><span style="display:inline-flex;align-items:center;gap:6px;">{html.escape(str(label))}{badge}</span>'
+        f'<span style="color:{MUTED_GREY};font-weight:500;font-size:11.5px;">{html.escape(str(right_text))}</span></div>'
+        f'<div class="saarthi-cap-track"><div class="saarthi-cap-fill" style="width:{clamped}%;background:{colour};"></div></div>'
+        '</div>'
+    )
+
+
 def render_df_table(data_obj, hide_index=True, target=None):
-    """Render a DataFrame or list of dicts as a crisp, high-contrast .saarthi-scan HTML table."""
+    """Render a DataFrame or list of dicts as a clean, non-overlapping EOC HTML table."""
     target = st if target is None else target
     frame = data_obj if isinstance(data_obj, pd.DataFrame) else pd.DataFrame(data_obj)
     if frame.empty:
         target.caption("No records to display.")
         return
-    if not hide_index and frame.index.name:
-        frame = frame.reset_index()
-    elif not hide_index and not isinstance(frame.index, pd.RangeIndex):
+    if not hide_index and (frame.index.name or not isinstance(frame.index, pd.RangeIndex)):
         frame = frame.reset_index()
     cols = list(frame.columns)
     head = "".join(f"<th>{html.escape(str(c))}</th>" for c in cols)
@@ -120,15 +192,18 @@ def render_df_table(data_obj, hide_index=True, target=None):
 
 
 def ui_callout(message, kind="info", target=None):
-    """Render a high-contrast light callout box so Streamlit dark-mode stAlert never hides text."""
+    """Clean, emoji-free EOC status callout card."""
     target = st if target is None else target
-    icons = {"info": "i", "success": "✓", "warning": "!", "error": "✕"}
-    labels = {"info": "Notice", "success": "Verified", "warning": "Attention", "error": "Alert"}
-    mark = icons.get(kind, "i")
-    label = labels.get(kind, "Notice")
+    labels = {
+        "info": "OPERATIONAL NOTE",
+        "success": "VERIFIED / SAFE",
+        "warning": "WARNING",
+        "error": "CRITICAL ALERT",
+    }
+    label = labels.get(kind, "NOTE")
     target.markdown(
         f'<div class="saarthi-callout saarthi-callout-{html.escape(kind)}">'
-        f'<span class="saarthi-callout-mark" aria-hidden="true">{mark}</span>'
+        f'<span class="saarthi-callout-dot" aria-hidden="true"></span>'
         f'<div class="saarthi-callout-body"><b>{label}</b><span>{html.escape(str(message))}</span></div>'
         '</div>',
         unsafe_allow_html=True,
@@ -161,11 +236,10 @@ def act(fn, *args, ok="Done"):  # runs an action from data.py, then redraws the 
 
 
 def page_header(title, description):
-    """Shared page heading: gold eyebrow, Playfair Display title, and one description line."""
+    """Compact operational context strip."""
     st.markdown(
         '<div class="saarthi-heading">'
-        '<div class="eb">SAARTHI · COMMAND CENTER MODULE</div>'
-        f'<div class="saarthi-title">{title}</div>'
+        f'<div class="saarthi-title">{html.escape(title)}</div>'
         f'<div class="saarthi-description">{html.escape(description)}</div>'
         "</div>",
         unsafe_allow_html=True)
@@ -175,10 +249,9 @@ def safety_notice(summary, detail=None, *, tone="info", target=None, key=None):
     """Compact safety line. Any longer original wording stays in the expander."""
     target = st if target is None else target
     kind = "caution" if tone == "caution" else "info"
-    mark = "!" if tone == "caution" else "i"
     target.markdown(
         f'<div class="saarthi-notice saarthi-notice-{kind}">'
-        f'<span class="saarthi-notice-mark" aria-hidden="true">{mark}</span>'
+        f'<span class="saarthi-notice-dot" aria-hidden="true"></span>'
         f"<span>{html.escape(summary)}</span>"
         "</div>",
         unsafe_allow_html=True)
@@ -189,209 +262,195 @@ def safety_notice(summary, detail=None, *, tone="info", target=None, key=None):
 
 
 def metric_tiles(items):
-    """Compact status tiles. items are (label, value, value colour)."""
+    """Equal-height, single-row KPI cards with subtle border, clean top/left status accent, and tabular numerals."""
+    count = max(1, len(items))
     cards = []
     for label, value, colour in items:
-        tone = colour if colour != TEXT else NAVY
+        accent = colour if colour != TEXT else STEEL
+        value_col = colour if colour in (RED, ORANGE, YELLOW, BLUE, TEAL) else CHARCOAL
         cards.append(
-            '<div class="saarthi-metric">'
-            f'<div class="saarthi-metric-value" style="color:{tone};">{value}</div>'
-            f'<div class="saarthi-metric-label">{label}</div>'
+            f'<div class="saarthi-metric" style="border-left: 3.5px solid {accent};">'
+            f'<div class="saarthi-metric-label">{html.escape(str(label))}</div>'
+            f'<div class="saarthi-metric-value" style="color:{value_col};">{value}</div>'
             "</div>"
         )
-    st.markdown('<div class="saarthi-metrics">' + "".join(cards) + "</div>", unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="saarthi-metrics" style="grid-template-columns: repeat({count}, minmax(0, 1fr));">'
+        + "".join(cards)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def style_chart(fig):
-    """Editorial white & ivory chart chrome with Playfair/Inter typography."""
+    """Clean white chart chrome with Charcoal & Muted Grey typography."""
     fig.update_layout(
-        paper_bgcolor=RAISED,
-        plot_bgcolor=RAISED,
-        font=dict(family="Inter, sans-serif", color=TEXT, size=12),
+        paper_bgcolor=WHITE,
+        plot_bgcolor=WHITE,
+        font=dict(family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", color=CHARCOAL, size=12),
         legend=dict(
-            font=dict(family="Inter, sans-serif", color=TEXT, size=11),
-            bgcolor="rgba(250,247,240,0.92)",
+            font=dict(color=CHARCOAL, size=11),
+            bgcolor="rgba(242,245,247,0.92)",
             bordercolor=LINE,
             borderwidth=1,
         ),
-        margin=dict(t=10, b=10, l=10, r=10),
+        margin=dict(t=8, b=8, l=8, r=8),
     )
     fig.update_xaxes(
-        gridcolor=LINE, linecolor=LINE, zerolinecolor=LINE,
-        tickfont=dict(family="Inter, sans-serif", color=MUTED, size=11),
-        title_font=dict(family="Inter, sans-serif", color=MUTED, size=11),
+        gridcolor="#EDF2F7", linecolor=LINE, zerolinecolor=LINE,
+        tickfont=dict(color=MUTED_GREY, size=11),
+        title_font=dict(color=MUTED_GREY, size=11),
     )
     fig.update_yaxes(
-        gridcolor=LINE, linecolor=LINE, zerolinecolor=LINE,
-        tickfont=dict(family="Inter, sans-serif", color=TEXT, size=11),
-        title_font=dict(family="Inter, sans-serif", color=MUTED, size=11),
+        gridcolor="#EDF2F7", linecolor=LINE, zerolinecolor=LINE,
+        tickfont=dict(color=CHARCOAL, size=11),
+        title_font=dict(color=MUTED_GREY, size=11),
     )
     return fig
 
 
 def command_styles():
-    """Exact visual styling from Saarthi – Emergency Command Center.html with complete light-surface overrides."""
+    """Saarthi Ripple Hybrid EOC Design System:
+    Deep Navy (#102536) sidebar, Steel Blue (#193C50) accents, Soft Light Grey (#F2F5F7) workspace,
+    Alert Red (#E74747) for critical only, Warning Amber (#E6A23C), Moderate Yellow (#D9A520),
+    Low Blue (#2B6CB0), Operational Green (#269B75)."""
     st.markdown(
-        f"""<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@500;600;700&family=Noto+Sans+Devanagari:wght@400;600&display=swap" rel="stylesheet"><style>
-        :root {{ --nv: {NAVY}; --iv: {IVORY}; --gd: {GOLD}; --ink: {TEXT}; --mu: {MUTED}; --hl: {LINE}; --cr: #D9483B; --am: #E58A35; --bl: #5C7380; --gn: #238C78; --primary-color: {NAVY}; --background-color: #FFFFFF; --secondary-background-color: {IVORY}; --text-color: {TEXT}; --saarthi-canvas: {CANVAS}; --saarthi-raised: {RAISED}; --saarthi-inset: {INSET}; --saarthi-sidebar: {SIDEBAR}; --saarthi-line: {LINE}; --saarthi-text: {TEXT}; --saarthi-muted: {MUTED}; --saarthi-warning: {WARNING}; color-scheme: light !important; }}
-        html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"], .main {{ background: {IVORY} !important; background-color: {IVORY} !important; color: {TEXT} !important; font: 14px/1.45 'Inter', sans-serif !important; font-variant-numeric: tabular-nums; color-scheme: light !important; }}
+        f"""<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"><style>
+        :root {{ --saarthi-canvas: {CANVAS}; --saarthi-raised: {RAISED}; --saarthi-inset: {INSET}; --saarthi-sidebar: {SIDEBAR}; --saarthi-line: {LINE}; --saarthi-text: {TEXT}; --saarthi-muted: {MUTED}; --saarthi-warning: {WARNING}; --primary-color: {NAVY}; --background-color: {WHITE}; --secondary-background-color: {BG_GREY}; --text-color: {CHARCOAL}; color-scheme: light !important; }}
+        html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"], .main {{ background: {BG_GREY} !important; background-color: {BG_GREY} !important; color: {CHARCOAL} !important; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important; font-size: 13.5px !important; font-variant-numeric: tabular-nums; color-scheme: light !important; -webkit-font-smoothing: antialiased; }}
         [data-testid="stDeployButton"], .stAppDeployButton {{ display: none !important; }}
-        header[data-testid="stHeader"] {{ background: transparent !important; }}
-        [data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] button {{ background: {NAVY} !important; color: {CREAM} !important; border: 1px solid {LINE} !important; border-radius: 0px !important; }}
-        [data-testid="collapsedControl"] svg, [data-testid="stSidebarCollapsedControl"] svg {{ fill: {CREAM} !important; color: {CREAM} !important; }}
-        .block-container {{ padding-top: 0.5rem !important; padding-bottom: 2rem !important; max-width: 1440px !important; }}
-        [data-testid="stSidebar"], [data-testid="stSidebar"] > div {{ background: {NAVY} !important; background-color: {NAVY} !important; border-right: none !important; color: {CREAM} !important; }}
-        [data-testid="stSidebar"] .block-container {{ padding-top: 1rem !important; }}
-        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{ font-family: 'Playfair Display', serif !important; color: {CREAM} !important; letter-spacing: 0.14em !important; }}
-        [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label, [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{ color: {CREAM} !important; }}
-        [data-testid="stSidebar"] hr {{ border-color: rgba(255, 255, 255, 0.16) !important; }}
-        [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {{ font: 600 10.5px 'Inter', sans-serif !important; letter-spacing: 0.16em !important; text-transform: uppercase !important; color: {GOLD_LIGHT} !important; line-height: 1.3 !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button {{ min-height: 38px !important; padding: 8px 14px !important; font: 600 11.5px 'Inter', sans-serif !important; letter-spacing: 0.06em !important; text-align: left !important; border-radius: 0px !important; border: 1px solid rgba(255, 255, 255, 0.18) !important; background: rgba(255, 255, 255, 0.04) !important; color: {CREAM} !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button:hover {{ background: {WARNING} !important; color: {NAVY} !important; border-color: {WARNING} !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button:hover p, [data-testid="stSidebar"] [data-testid="stButton"] button:hover span {{ color: {NAVY} !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] {{ background: {WARNING} !important; color: {NAVY} !important; border: 1px solid {WARNING} !important; border-left: 4px solid {CRIMSON} !important; font-weight: 600 !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] p, [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] span {{ color: {NAVY} !important; font-weight: 600 !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="secondary"] p, [data-testid="stSidebar"] [data-testid="stButton"] button[kind="secondary"] span {{ color: {CREAM} !important; }}
-        [data-testid="stSidebar"] .saarthi-notice {{ background: #16294D !important; border-color: {WARNING} !important; border-left: 3px solid {WARNING} !important; color: {CREAM} !important; }}
-        [data-testid="stSidebar"] .saarthi-notice span {{ color: {CREAM} !important; }}
-        [data-testid="stHeading"] {{ margin-bottom: 0.25rem; }}
-        [data-testid="stHeading"] h1, [data-testid="stHeading"] h2, [data-testid="stHeading"] h3 {{ font-family: 'Playfair Display', serif !important; font-weight: 600 !important; color: {NAVY} !important; letter-spacing: 0 !important; }}
-        [data-testid="stHeading"] h2 {{ font-size: 22px !important; }}
-        [data-testid="stHeading"] h3 {{ font-size: 18px !important; }}
-        [data-testid="stVerticalBlock"] {{ gap: 0.65rem; }}
-        [data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li {{ margin-bottom: 0 !important; color: {TEXT}; }}
-        [data-testid="stMarkdownContainer"] code, .stApp code {{ background: #F3F5F6 !important; color: {NAVY} !important; border: 1px solid {LINE} !important; padding: 1px 5px !important; border-radius: 0px !important; font-size: 12px !important; }}
-        [data-testid="stCaptionContainer"] p {{ font-size: 12px !important; line-height: 1.45 !important; color: {MUTED} !important; }}
-        [data-testid="stVerticalBlockBorderWrapper"], [data-testid="stVerticalBlock"].st-emotion-cache-pb8mwp, div[data-testid="stForm"] {{ background: #FFFFFF !important; background-color: #FFFFFF !important; border: 1px solid {LINE} !important; border-top: 3px solid {LINE} !important; border-radius: 0px !important; padding: 18px 20px !important; }}
-        .stMain [data-testid="stButton"] button, .stMain [data-testid="stFormSubmitButton"] button {{ border-radius: 0px !important; min-height: 38px !important; padding: 6px 14px !important; font: 600 11.5px 'Inter', sans-serif !important; letter-spacing: 0.05em !important; border: 1px solid {LINE} !important; background: #FFFFFF !important; background-color: #FFFFFF !important; color: {NAVY} !important; white-space: nowrap !important; }}
+        header[data-testid="stHeader"] {{ background: transparent !important; height: 2.2rem !important; }}
+        [data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapseButton"] button, [data-testid="collapsedControl"], [data-testid="collapsedControl"] button, [data-testid="stSidebarCollapsedControl"], [data-testid="stSidebarCollapsedControl"] button, header[data-testid="stHeader"] [data-testid="baseButton-headerNoPadding"], header[data-testid="stHeader"] button {{ background: {NAVY} !important; background-color: {NAVY} !important; color: {WHITE} !important; border: 1px solid rgba(255,255,255,0.22) !important; border-radius: 6px !important; opacity: 1 !important; visibility: visible !important; box-shadow: 0 1px 3px rgba(16, 37, 54, 0.2) !important; }}
+        [data-testid="stExpandSidebarButton"]:hover, [data-testid="stSidebarCollapseButton"] button:hover, [data-testid="collapsedControl"]:hover, [data-testid="collapsedControl"] button:hover, [data-testid="stSidebarCollapsedControl"] button:hover, header[data-testid="stHeader"] button:hover {{ background: {STEEL} !important; background-color: {STEEL} !important; color: {WHITE} !important; border-color: {ORANGE} !important; }}
+        [data-testid="stExpandSidebarButton"] *, [data-testid="stSidebarCollapseButton"] button *, [data-testid="collapsedControl"] *, [data-testid="stSidebarCollapsedControl"] *, header[data-testid="stHeader"] button * {{ color: {WHITE} !important; fill: {WHITE} !important; }}
+        .block-container {{ padding-top: 0.45rem !important; padding-bottom: 1.5rem !important; padding-left: 1.4rem !important; padding-right: 1.4rem !important; max-width: 1520px !important; }}
+        [data-testid="stSidebar"], [data-testid="stSidebar"] > div {{ background: {NAVY} !important; background-color: {NAVY} !important; border-right: 1px solid #0B1926 !important; color: {WHITE} !important; }}
+        [data-testid="stSidebar"] .block-container {{ padding-top: 0.85rem !important; padding-left: 0.8rem !important; padding-right: 0.8rem !important; }}
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{ gap: 0.25rem !important; }}
+        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{ color: {WHITE} !important; font-weight: 600 !important; letter-spacing: 0.02em !important; }}
+        [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label, [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{ color: #E2E8F0 !important; }}
+        [data-testid="stSidebar"] hr {{ border-color: rgba(255, 255, 255, 0.09) !important; margin: 0.4rem 0 !important; }}
+        .saarthi-nav-group {{ padding: 7px 6px 2px 6px; color: #7F9BB2; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button {{ min-height: 33px !important; padding: 5px 11px !important; font-size: 12.5px !important; font-weight: 500 !important; text-align: left !important; justify-content: flex-start !important; border-radius: 6px !important; border: 1px solid transparent !important; border-left: 3px solid transparent !important; background: transparent !important; color: #CBD5E1 !important; transition: background 0.12s ease !important; width: 100% !important; display: flex !important; }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button > div {{ justify-content: flex-start !important; text-align: left !important; width: 100% !important; display: flex !important; }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button:hover {{ background: rgba(25, 60, 80, 0.7) !important; color: {WHITE} !important; }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button:hover p, [data-testid="stSidebar"] [data-testid="stButton"] button:hover span {{ color: {WHITE} !important; }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] {{ background: {STEEL} !important; background-color: {STEEL} !important; color: {WHITE} !important; border: 1px solid rgba(231, 71, 71, 0.35) !important; border-left: 3.5px solid {RED} !important; font-weight: 600 !important; }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] p, [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] span {{ color: {WHITE} !important; font-weight: 600 !important; }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="secondary"] p, [data-testid="stSidebar"] [data-testid="stButton"] button[kind="secondary"] span {{ color: #CBD5E1 !important; }}
+        [data-testid="stSidebar"] .saarthi-notice {{ background: rgba(230, 162, 60, 0.12) !important; border: 1px solid rgba(230, 162, 60, 0.35) !important; border-left: 3px solid {ORANGE} !important; border-radius: 6px !important; color: #F8FAFC !important; padding: 6px 9px !important; font-size: 11px !important; }}
+        [data-testid="stSidebar"] .saarthi-notice span {{ color: #F8FAFC !important; }}
+        [data-testid="stHeading"] {{ margin-bottom: 0.1rem; }}
+        [data-testid="stHeading"] h1, [data-testid="stHeading"] h2, [data-testid="stHeading"] h3 {{ font-family: 'Inter', sans-serif !important; font-weight: 600 !important; color: {NAVY} !important; letter-spacing: -0.01em !important; }}
+        [data-testid="stHeading"] h2 {{ font-size: 15.5px !important; }}
+        [data-testid="stHeading"] h3 {{ font-size: 14px !important; }}
+        [data-testid="stVerticalBlock"] {{ gap: 0.55rem; }}
+        [data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li {{ margin-bottom: 0 !important; color: {CHARCOAL}; }}
+        [data-testid="stMarkdownContainer"] code, .stApp code {{ font-family: 'JetBrains Mono', ui-monospace, monospace !important; background: {BG_GREY} !important; color: {NAVY} !important; border: 1px solid {LINE} !important; padding: 2px 5px !important; border-radius: 4px !important; font-size: 11.5px !important; }}
+        [data-testid="stCaptionContainer"] p {{ font-size: 11.5px !important; line-height: 1.4 !important; color: {MUTED_GREY} !important; }}
+        [data-testid="stVerticalBlockBorderWrapper"], [data-testid="stVerticalBlock"].st-emotion-cache-pb8mwp, div[data-testid="stForm"] {{ background: {WHITE} !important; background-color: {WHITE} !important; border: 1px solid #E6ECF0 !important; border-radius: 8px !important; padding: 14px 16px !important; box-shadow: 0 1px 2px rgba(16, 37, 54, 0.04) !important; }}
+        .stMain [data-testid="stButton"] button, .stMain [data-testid="stFormSubmitButton"] button {{ border-radius: 6px !important; min-height: 34px !important; padding: 5px 12px !important; font-size: 12px !important; font-weight: 600 !important; border: 1px solid #CBD5E1 !important; background: {WHITE} !important; background-color: {WHITE} !important; color: {NAVY} !important; white-space: nowrap !important; transition: all 0.12s ease !important; }}
         .stMain [data-testid="stButton"] button p, .stMain [data-testid="stButton"] button span, .stMain [data-testid="stFormSubmitButton"] button p, .stMain [data-testid="stFormSubmitButton"] button span {{ color: {NAVY} !important; white-space: nowrap !important; }}
-        .stMain [data-testid="stButton"] button:hover, .stMain [data-testid="stFormSubmitButton"] button:hover {{ background: {WARNING} !important; background-color: {WARNING} !important; color: {NAVY} !important; }}
-        .stMain [data-testid="stButton"] button[kind="primary"], .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] {{ background: {NAVY} !important; background-color: {NAVY} !important; color: {CREAM} !important; border: 1px solid {NAVY} !important; border-top: 2px solid {WARNING} !important; }}
-        .stMain [data-testid="stButton"] button[kind="primary"] p, .stMain [data-testid="stButton"] button[kind="primary"] span, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] p, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] span {{ color: {CREAM} !important; }}
-        .stMain [data-testid="stButton"] button[kind="primary"]:hover, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover {{ background: {WARNING} !important; background-color: {WARNING} !important; color: {NAVY} !important; border-color: {WARNING} !important; }}
-        .stMain [data-testid="stButton"] button[kind="primary"]:hover p, .stMain [data-testid="stButton"] button[kind="primary"]:hover span, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover p, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover span {{ color: {NAVY} !important; }}
-        .saarthi-callout {{ display: flex; align-items: flex-start; gap: 10px; padding: 11px 14px; margin: 6px 0; border: 1px solid {LINE}; border-left: 4px solid {BLUE}; background: #F3F5F6 !important; color: {TEXT} !important; font-size: 12.5px; line-height: 1.45; }}
-        .saarthi-callout-body {{ display: flex; flex-direction: column; gap: 2px; color: {TEXT} !important; }}
-        .saarthi-callout-body b {{ font: 600 10.5px 'Inter', sans-serif; letter-spacing: 0.12em; text-transform: uppercase; color: {NAVY}; }}
-        .saarthi-callout-body span {{ color: {TEXT} !important; font-size: 12.5px; }}
-        .saarthi-callout-mark {{ font: 700 10px 'Inter', sans-serif; line-height: 1.5; border: 1px solid currentColor; border-radius: 50%; width: 1.2rem; height: 1.2rem; text-align: center; flex: none; margin-top: 1px; }}
-        .saarthi-callout-info {{ border-left-color: #5C7380; background: #F2F6FA !important; }}
-        .saarthi-callout-info .saarthi-callout-mark, .saarthi-callout-info .saarthi-callout-body b {{ color: #5C7380; }}
-        .saarthi-callout-success {{ border-left-color: #238C78; background: #F0F7F4 !important; }}
-        .saarthi-callout-success .saarthi-callout-mark, .saarthi-callout-success .saarthi-callout-body b {{ color: #238C78; }}
-        .saarthi-callout-warning {{ border-left-color: {WARNING}; background: {WARNING_BG} !important; }}
-        .saarthi-callout-warning .saarthi-callout-mark, .saarthi-callout-warning .saarthi-callout-body b {{ color: #E58A35; }}
-        .saarthi-callout-error {{ border-left-color: #D9483B; background: #FDF2F3 !important; }}
-        .saarthi-callout-error .saarthi-callout-mark, .saarthi-callout-error .saarthi-callout-body b {{ color: #D9483B; }}
-        [data-testid="stAlert"], [data-testid="stAlert"] > div, [data-testid="stAlertContainer"], [data-baseweb="notification"], div[role="alert"] {{ background: #F3F5F6 !important; background-color: #F3F5F6 !important; color: {TEXT} !important; border: 1px solid {LINE} !important; border-left: 4px solid {CRIMSON} !important; border-radius: 0px !important; }}
-        [data-testid="stAlert"] *, [data-testid="stAlertContainer"] *, [data-baseweb="notification"] *, div[role="alert"] * {{ color: {TEXT} !important; background-color: transparent !important; }}
-        .stApp [data-baseweb="select"], .stApp [data-baseweb="select"] > div, .stApp [data-baseweb="input"], .stApp [data-baseweb="input"] > div, .stApp [data-baseweb="base-input"], .stApp [data-baseweb="textarea"], .stApp [data-baseweb="textarea"] > div, .stApp [data-testid="stNumberInputContainer"], .stApp input, .stApp textarea {{ border-radius: 0px !important; border-color: {INPUT_LINE} !important; background: #FFFFFF !important; background-color: #FFFFFF !important; color: {TEXT} !important; -webkit-text-fill-color: {TEXT} !important; caret-color: {NAVY} !important; }}
-        .stApp [data-baseweb="select"] span, .stApp [data-baseweb="select"] div, .stApp [data-testid="stNumberInput"] input, .stApp [data-testid="stNumberInput"] button {{ color: {TEXT} !important; background: #FFFFFF !important; background-color: #FFFFFF !important; }}
+        .stMain [data-testid="stButton"] button:hover, .stMain [data-testid="stFormSubmitButton"] button:hover {{ background: {BG_GREY} !important; background-color: {BG_GREY} !important; border-color: {STEEL} !important; color: {NAVY} !important; }}
+        .stMain [data-testid="stButton"] button[kind="primary"], .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] {{ background: {STEEL} !important; background-color: {STEEL} !important; color: {WHITE} !important; border: 1px solid {STEEL} !important; }}
+        .stMain [data-testid="stButton"] button[kind="primary"] p, .stMain [data-testid="stButton"] button[kind="primary"] span, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] p, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] span {{ color: {WHITE} !important; }}
+        .stMain [data-testid="stButton"] button[kind="primary"]:hover, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover {{ background: {NAVY} !important; background-color: {NAVY} !important; border-color: {NAVY} !important; color: {WHITE} !important; }}
+        .stMain [data-testid="stButton"] button[kind="primary"]:hover p, .stMain [data-testid="stButton"] button[kind="primary"]:hover span, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover p, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover span {{ color: {WHITE} !important; }}
+        .saarthi-callout {{ display: flex; align-items: flex-start; gap: 10px; padding: 9px 13px; margin: 3px 0; border: 1px solid {LINE}; border-left: 3.5px solid {STEEL}; border-radius: 6px; background: {WHITE} !important; color: {CHARCOAL} !important; font-size: 12.5px; line-height: 1.45; }}
+        .saarthi-callout-body {{ display: flex; flex-direction: column; gap: 1px; color: {CHARCOAL} !important; }}
+        .saarthi-callout-body b {{ font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: {STEEL}; }}
+        .saarthi-callout-body span {{ color: {CHARCOAL} !important; font-size: 12.5px; }}
+        .saarthi-callout-dot {{ width: 7px; height: 7px; border-radius: 50%; background: {STEEL}; flex: none; margin-top: 5px; }}
+        .saarthi-callout-info {{ border-left-color: {BLUE}; background: #F8FAFC !important; }}
+        .saarthi-callout-info .saarthi-callout-dot {{ background: {BLUE}; }}
+        .saarthi-callout-info .saarthi-callout-body b {{ color: {BLUE}; }}
+        .saarthi-callout-success {{ border-left-color: {TEAL}; background: #F2FAF7 !important; }}
+        .saarthi-callout-success .saarthi-callout-dot {{ background: {TEAL}; }}
+        .saarthi-callout-success .saarthi-callout-body b {{ color: {TEAL}; }}
+        .saarthi-callout-warning {{ border-left-color: {ORANGE}; background: #FFFBF4 !important; }}
+        .saarthi-callout-warning .saarthi-callout-dot {{ background: {ORANGE}; }}
+        .saarthi-callout-warning .saarthi-callout-body b {{ color: #B45309; }}
+        .saarthi-callout-error {{ border-left-color: {RED}; background: #FEF2F2 !important; }}
+        .saarthi-callout-error .saarthi-callout-dot {{ background: {RED}; }}
+        .saarthi-callout-error .saarthi-callout-body b {{ color: {RED}; }}
+        [data-testid="stAlert"], [data-testid="stAlert"] > div, [data-testid="stAlertContainer"], [data-baseweb="notification"], div[role="alert"] {{ background: {WHITE} !important; background-color: {WHITE} !important; color: {CHARCOAL} !important; border: 1px solid {LINE} !important; border-left: 3.5px solid {STEEL} !important; border-radius: 6px !important; }}
+        [data-testid="stAlert"] *, [data-testid="stAlertContainer"] *, [data-baseweb="notification"] *, div[role="alert"] * {{ color: {CHARCOAL} !important; background-color: transparent !important; }}
+        .stApp [data-baseweb="select"] > div, .stApp [data-baseweb="input"], .stApp [data-baseweb="input"] > div, .stApp [data-baseweb="base-input"], .stApp [data-baseweb="textarea"], .stApp [data-baseweb="textarea"] > div, .stApp [data-testid="stNumberInputContainer"] {{ border-radius: 6px !important; border: 1px solid #CBD5E1 !important; background: #F8FAFC !important; background-color: #F8FAFC !important; color: {CHARCOAL} !important; }}
+        .stApp [data-baseweb="select"] div, .stApp [data-baseweb="select"] span, .stApp [data-baseweb="select"] input, .stApp [data-baseweb="input"] input, .stApp [data-baseweb="textarea"] textarea, .stApp [data-testid="stNumberInput"] input {{ background: transparent !important; background-color: transparent !important; color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important; caret-color: {NAVY} !important; }}
+        .stApp [data-testid="stNumberInput"] button {{ background: #F1F5F9 !important; background-color: #F1F5F9 !important; color: {NAVY} !important; border-left: 1px solid #CBD5E1 !important; }}
         .stApp [data-baseweb="select"] svg, .stApp [data-testid="stNumberInput"] svg {{ fill: {NAVY} !important; color: {NAVY} !important; }}
-        body [data-baseweb="popover"], body [data-baseweb="popover"] > div, body [data-baseweb="menu"], body ul[role="listbox"], body li[role="option"], body [data-testid="stSelectboxVirtualDropdown"] {{ background: #FFFFFF !important; background-color: #FFFFFF !important; color: {TEXT} !important; border-radius: 0px !important; }}
-        body li[role="option"] *, body [data-baseweb="menu"] * {{ color: {TEXT} !important; }}
-        body li[role="option"]:hover, body li[role="option"][aria-selected="true"] {{ background: {IVORY} !important; background-color: {IVORY} !important; color: {NAVY} !important; font-weight: 600 !important; }}
-        body [data-testid="stToast"], body [data-testid="stToast"] > div {{ background: {NAVY} !important; background-color: {NAVY} !important; color: {CREAM} !important; border: 1px solid {LINE} !important; border-top: 3px solid {LINE} !important; border-radius: 0px !important; }}
-        body [data-testid="stToast"] * {{ color: {CREAM} !important; }}
-        .stApp [data-baseweb="tag"] {{ background: {NAVY} !important; background-color: {NAVY} !important; color: {CREAM} !important; border-radius: 0px !important; border: 1px solid {LINE} !important; }}
-        .stApp [data-baseweb="tag"] span, .stApp [data-baseweb="tag"] svg {{ color: {CREAM} !important; fill: {CREAM} !important; background: transparent !important; }}
-        .stMain label p, .stMain [data-testid="stWidgetLabel"] p, .stMain [data-testid="stCheckbox"] label span, .stMain [data-testid="stCheckbox"] p {{ font: 600 10.5px 'Inter', sans-serif !important; letter-spacing: 0.12em !important; text-transform: uppercase !important; color: {TEXT} !important; }}
-        .stMain [data-testid="stRadio"] label span, .stMain [data-testid="stRadio"] p, .stMain [data-testid="stSlider"] * {{ color: {TEXT} !important; }}
-        [data-testid="stTabs"] [data-baseweb="tab-list"] {{ gap: 2px !important; border-bottom: 1px solid {LINE} !important; background: transparent !important; }}
-        [data-testid="stTabs"] [data-baseweb="tab"] {{ background: transparent !important; border: 0 !important; border-bottom: 3px solid transparent !important; font: 600 12px 'Inter', sans-serif !important; letter-spacing: 0.06em !important; text-transform: uppercase !important; color: {MUTED} !important; padding: 10px 14px !important; }}
-        [data-testid="stTabs"] [data-baseweb="tab"] p, [data-testid="stTabs"] [data-baseweb="tab"] span {{ color: {MUTED} !important; }}
-        [data-testid="stTabs"] [aria-selected="true"], [data-testid="stTabs"] [aria-selected="true"] p, [data-testid="stTabs"] [aria-selected="true"] span {{ color: {NAVY} !important; border-bottom-color: {WARNING} !important; font-weight: 600 !important; }}
-        details[data-testid="stExpander"], details[data-testid="stExpander"] > div {{ background: #FFFFFF !important; background-color: #FFFFFF !important; border: 1px solid {LINE} !important; border-top: 2px solid {WARNING} !important; border-radius: 0px !important; color: {TEXT} !important; }}
-        details[data-testid="stExpander"] summary, details[data-testid="stExpander"] summary p, details[data-testid="stExpander"] summary span, details[data-testid="stExpander"] summary svg {{ font: 600 12px 'Inter', sans-serif !important; letter-spacing: 0.05em !important; color: {NAVY} !important; fill: {NAVY} !important; background: #FFFFFF !important; background-color: #FFFFFF !important; }}
-        .royal {{ position: relative; background: {NAVY}; color: {CREAM}; overflow: hidden; border-bottom: 1px solid {LINE}; margin-bottom: 8px; }}
-        .royal .pat {{ position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }}
-        .royal .hd {{ position: relative; max-width: 1400px; margin: 0 auto; padding: 20px 28px 16px; }}
-        .royal .row {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }}
-        .royal .brand {{ display: flex; align-items: center; gap: 14px; }}
-        .royal .bn {{ font: 600 22px 'Playfair Display', serif; letter-spacing: .28em; color: {CREAM}; }}
-        .royal .bt {{ font: 500 11px 'Inter', sans-serif; letter-spacing: .14em; text-transform: uppercase; color: {NAVY_MUTED}; margin-top: 3px; }}
-        .royal .pills {{ display: flex; border: 1px solid #3A4C70; flex-wrap: wrap; }}
-        .royal .pills span {{ background: none; border: 0; color: {NAVY_MUTED}; font: 500 12px 'Inter', sans-serif; letter-spacing: .06em; padding: 9px 15px; }}
-        .royal .pills span.on {{ background: {CREAM}; color: {NAVY}; font-weight: 600; }}
-        .royal h1 {{ font: 600 36px/1.1 'Playfair Display', serif !important; margin: 18px 0 0 !important; color: {CREAM} !important; }}
-        .royal .chip {{ font: 600 10.5px 'Inter', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: {GOLD_LIGHT}; border: 1px solid #E1E6E988; padding: 6px 10px; margin-left: 12px; vertical-align: middle; display: inline-block; }}
-        .royal .kp {{ display: grid; grid-template-columns: repeat(5, minmax(100px, 1fr)); border-top: 1px solid {GOLD}; min-width: min(560px, 100%); margin-top: 10px; }}
-        .royal .kp div {{ padding: 10px 12px 0 0; margin-right: 12px; border-right: 1px solid #E1E6E955; }}
-        .royal .kp div:last-child {{ border-right: 0; margin-right: 0; }}
-        .royal .kp .n {{ font: 600 30px 'Playfair Display', serif; line-height: 1; color: {CREAM}; }}
-        .royal .kp .l {{ font: 500 10px 'Inter', sans-serif; letter-spacing: .12em; text-transform: uppercase; color: {NAVY_MUTED}; margin-top: 6px; }}
-        .royal .demo-strip {{ display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 16px; padding-top: 12px; border-top: 1px solid #E1E6E955; }}
-        .royal .demo-badge {{ border: 1px solid #E1E6E9aa; color: {CREAM}; font: 600 11px 'Inter', sans-serif; letter-spacing: .06em; padding: 6px 12px; text-transform: uppercase; }}
-        .royal .demo-badge.on {{ background: {WARNING}; color: {NAVY}; }}
-        .royal .ph {{ margin-left: auto; font: 500 11px ui-monospace, Menlo, monospace; letter-spacing: .06em; color: {NAVY_MUTED}; }}
-        .royal .ph b {{ color: {GOLD_LIGHT}; }}
-        .eb {{ font: 600 11px 'Inter', sans-serif; letter-spacing: .18em; text-transform: uppercase; color: {EYEBROW}; }}
-        .eb.live {{ color: #238C78; }}
-        .saarthi-heading {{ margin: 0; }}
-        .saarthi-title {{ font: 600 22px/1.2 'Playfair Display', serif; color: {NAVY}; margin-top: 4px; }}
-        .saarthi-description {{ color: {MUTED}; font-size: 12.5px; line-height: 1.45; margin-top: 4px; }}
-        .saarthi-notice {{ display: flex; gap: 10px; align-items: flex-start; border: 1px solid {LINE}; border-left: 3px solid {WARNING}; background: {IVORY}; padding: 9px 12px; color: {TEXT}; font-size: 12.5px; line-height: 1.45; }}
-        .saarthi-notice-caution {{ color: #D9483B; border-color: #D9483B66; border-left: 3px solid #D9483B; background: #FDF2F3; }}
-        .saarthi-notice-mark {{ font: 600 10px 'Inter', sans-serif; line-height: 1.45; border: 1px solid currentColor; border-radius: 50%; width: 1.15rem; height: 1.15rem; text-align: center; flex: none; color: {EYEBROW}; }}
-        .saarthi-notice-caution .saarthi-notice-mark {{ color: #D9483B; }}
-        .saarthi-metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: 12px; }}
-        .saarthi-metric {{ border: 1px solid {LINE}; border-top: 3px solid {LINE}; background: #FFFFFF; padding: 14px 16px; min-width: 0; }}
-        .saarthi-metric-value {{ font: 600 30px/1 'Playfair Display', serif; font-variant-numeric: tabular-nums; color: {NAVY}; }}
-        .saarthi-metric-label {{ color: {MUTED}; font: 600 10.5px 'Inter', sans-serif; letter-spacing: 0.12em; text-transform: uppercase; line-height: 1.35; margin-top: 7px; }}
-        .saarthi-map-header {{ background: {NAVY}; border-top: 3px solid {LINE}; padding: 14px 18px 10px; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }}
-        .saarthi-map-header h3 {{ font: 600 20px 'Playfair Display', serif !important; color: {CREAM} !important; margin: 4px 0 0 !important; }}
-        .saarthi-map-header .sub {{ font-size: 12px; color: {NAVY_MUTED}; }}
-        .saarthi-legend {{ background: {NAVY}; color: {NAVY_MUTED}; font-size: 11.5px; line-height: 1.7; padding: 10px 18px 14px; display: flex; flex-wrap: wrap; gap: 16px; border-bottom: 2px solid {GOLD}; }}
-        .saarthi-table-container {{ width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; display: block; min-width: 0; margin: 6px 0; background: #FFFFFF; border: 1px solid {LINE}; }}
-        table.saarthi-scan, table.saarthi-requests {{ width: 100% !important; border-collapse: collapse !important; border: none !important; font-size: 12.5px !important; background: #FFFFFF !important; margin: 0 !important; }}
-        table.saarthi-scan thead tr, table.saarthi-requests thead tr {{ background: {IVORY} !important; border-bottom: 2px solid {LINE} !important; }}
-        table.saarthi-scan th, table.saarthi-requests th {{ font: 600 10.5px 'Inter', sans-serif !important; letter-spacing: 0.1em !important; text-transform: uppercase !important; color: {MUTED} !important; text-align: left !important; padding: 10px 14px !important; border: none !important; border-bottom: 2px solid {LINE} !important; white-space: nowrap !important; background: {IVORY} !important; }}
-        table.saarthi-scan td, table.saarthi-requests td {{ padding: 10px 14px !important; border: none !important; border-bottom: 1px solid {LINE} !important; color: {TEXT} !important; background: #FFFFFF !important; vertical-align: middle !important; line-height: 1.45 !important; }}
-        table.saarthi-scan tbody tr:hover td, table.saarthi-requests tbody tr:hover td {{ background: #F3F5F6 !important; }}
+        .stApp [data-baseweb="tag"] {{ background: {STEEL} !important; background-color: {STEEL} !important; color: {WHITE} !important; border-radius: 4px !important; border: none !important; padding: 1px 7px !important; margin: 1px 2px !important; font-size: 11.5px !important; }}
+        .stApp [data-baseweb="tag"] span, .stApp [data-baseweb="tag"] svg {{ color: {WHITE} !important; fill: {WHITE} !important; background: transparent !important; }}
+        body [data-baseweb="popover"], body [data-baseweb="popover"] > div, body [data-baseweb="menu"], body ul[role="listbox"], body li[role="option"], body [data-testid="stSelectboxVirtualDropdown"] {{ background: {WHITE} !important; background-color: {WHITE} !important; color: {CHARCOAL} !important; border-radius: 6px !important; }}
+        body li[role="option"] *, body [data-baseweb="menu"] * {{ color: {CHARCOAL} !important; }}
+        body li[role="option"]:hover, body li[role="option"][aria-selected="true"] {{ background: {BG_GREY} !important; background-color: {BG_GREY} !important; color: {NAVY} !important; font-weight: 600 !important; }}
+        body [data-testid="stToast"], body [data-testid="stToast"] > div {{ background: {NAVY} !important; background-color: {NAVY} !important; color: {WHITE} !important; border: 1px solid {TEAL} !important; border-left: 4px solid {TEAL} !important; border-radius: 8px !important; box-shadow: 0 4px 12px rgba(16, 37, 54, 0.18) !important; }}
+        body [data-testid="stToast"] * {{ color: {WHITE} !important; }}
+        .stMain label p, .stMain [data-testid="stWidgetLabel"] p, .stMain [data-testid="stCheckbox"] label span, .stMain [data-testid="stCheckbox"] p {{ font-size: 10.5px !important; font-weight: 600 !important; letter-spacing: 0.04em !important; text-transform: uppercase !important; color: {MUTED_GREY} !important; }}
+        .stMain [data-testid="stRadio"] label span, .stMain [data-testid="stRadio"] p, .stMain [data-testid="stSlider"] * {{ color: {CHARCOAL} !important; }}
+        details[data-testid="stExpander"], details[data-testid="stExpander"] > div {{ background: {WHITE} !important; background-color: {WHITE} !important; border: 1px solid #E6ECF0 !important; border-radius: 8px !important; color: {CHARCOAL} !important; }}
+        details[data-testid="stExpander"] summary, details[data-testid="stExpander"] summary p, details[data-testid="stExpander"] summary span, details[data-testid="stExpander"] summary svg {{ font-size: 12px !important; font-weight: 600 !important; color: {NAVY} !important; fill: {NAVY} !important; background: {WHITE} !important; background-color: {WHITE} !important; border-radius: 8px !important; }}
+        .saarthi-heading {{ display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0; }}
+        .saarthi-title {{ color: {NAVY}; font-size: 15.5px; font-weight: 600; line-height: 1.25; }}
+        .saarthi-description {{ color: {MUTED_GREY}; font-size: 12px; line-height: 1.4; }}
+        .saarthi-notice {{ display: flex; gap: 8px; align-items: flex-start; border: 1px solid {LINE}; border-left: 3px solid {STEEL}; border-radius: 6px; background: {INSET}; padding: 7px 11px; color: {CHARCOAL}; font-size: 12px; line-height: 1.4; }}
+        .saarthi-notice-caution {{ color: #92400E; border-color: {WARNING_BORDER}; border-left: 3px solid {ORANGE}; background: {WARNING_BG}; }}
+        .saarthi-notice-dot {{ width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; margin-top: 5px; }}
+        .saarthi-metrics {{ display: grid; gap: 10px; margin: 2px 0; align-items: stretch; }}
+        .saarthi-metric {{ display: flex; flex-direction: column; justify-content: space-between; min-height: 76px; border: 1px solid #E6ECF0; border-radius: 8px; background: {WHITE}; padding: 11px 14px; min-width: 0; box-shadow: 0 1px 2px rgba(16, 37, 54, 0.03); }}
+        .saarthi-metric-label {{ color: {MUTED_GREY}; font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+        .saarthi-metric-value {{ font-size: 22px; font-weight: 700; line-height: 1.15; margin-top: 6px; font-variant-numeric: tabular-nums; color: {CHARCOAL}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+        /* Top Command Header & Alert Ticker */
+        .saarthi-eoc-header {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: {NAVY}; color: {WHITE}; border-radius: 8px 8px 0 0; padding: 11px 18px; border-bottom: 1px solid {STEEL}; }}
+        .saarthi-eoc-brand {{ display: flex; align-items: center; gap: 14px; min-width: 0; }}
+        .saarthi-mark {{ color: #94A3B8; font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; line-height: 1.2; }}
+        .saarthi-page {{ color: {WHITE}; font-size: 16.5px; font-weight: 600; line-height: 1.2; margin-top: 1px; }}
+        .saarthi-eoc-meta {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
+        .saarthi-eoc-pill {{ display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 5px; background: {STEEL}; color: #E2E8F0; border: 1px solid rgba(255,255,255,0.1); white-space: nowrap; }}
+        .saarthi-eoc-clock {{ font-family: 'JetBrains Mono', ui-monospace, monospace; color: #CBD5E1; font-size: 11px; font-weight: 500; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px; padding: 4px 9px; font-variant-numeric: tabular-nums; }}
+        .saarthi-ticker {{ display: flex; align-items: center; gap: 12px; background: {STEEL}; color: #F1F5F9; padding: 6px 16px; border-radius: 0 0 8px 8px; font-size: 11.5px; overflow-x: auto; white-space: nowrap; margin-bottom: 4px; box-shadow: 0 2px 5px rgba(16, 37, 54, 0.08); }}
+        .saarthi-ticker-tag {{ font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; background: {RED}; color: {WHITE}; flex: none; }}
+        .saarthi-ticker-items {{ display: inline-flex; align-items: center; gap: 18px; }}
+        .saarthi-ticker-sep {{ color: #64748B; }}
+        /* Map Header & Legend */
+        .saarthi-map-bar {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: {STEEL}; color: {WHITE}; padding: 9px 14px; border-radius: 6px 6px 0 0; margin-top: 2px; }}
+        .saarthi-map-bar-title {{ font-size: 12.5px; font-weight: 600; letter-spacing: 0.02em; color: {WHITE}; }}
+        .saarthi-map-bar-sub {{ font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #CBD5E1; }}
+        .saarthi-legend {{ background: {INSET}; border: 1px solid {LINE}; border-radius: 0 0 6px 6px; padding: 8px 12px; color: {CHARCOAL}; font-size: 11.5px; line-height: 1.5; display: flex; flex-wrap: wrap; gap: 14px; margin-top: -4px; }}
+        /* Tables */
+        .saarthi-table-container {{ width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; display: block; min-width: 0; border: 1px solid #E6ECF0; border-radius: 6px; background: {WHITE}; margin: 3px 0; }}
+        table.saarthi-scan, table.saarthi-requests {{ width: 100% !important; border-collapse: collapse !important; border: none !important; font-size: 12px !important; background: {WHITE} !important; margin: 0 !important; }}
+        table.saarthi-scan th, table.saarthi-requests th {{ background: {BG_GREY} !important; color: {MUTED_GREY} !important; font-size: 10.5px !important; font-weight: 600 !important; letter-spacing: 0.05em !important; text-transform: uppercase !important; text-align: left !important; padding: 8px 12px !important; border: none !important; border-bottom: 1px solid {LINE} !important; white-space: nowrap !important; }}
+        table.saarthi-scan td, table.saarthi-requests td {{ padding: 8px 12px !important; border: none !important; border-bottom: 1px solid {LINE} !important; color: {CHARCOAL} !important; background: {WHITE} !important; vertical-align: middle !important; line-height: 1.4 !important; }}
+        table.saarthi-scan tbody tr:last-child td, table.saarthi-requests tbody tr:last-child td {{ border-bottom: none !important; }}
+        table.saarthi-scan tbody tr:hover td, table.saarthi-requests tbody tr:hover td {{ background: #F8FAFC !important; }}
         .saarthi-scan td.saarthi-nowrap, .saarthi-requests td.saarthi-nowrap {{ white-space: nowrap !important; }}
-        .inc {{ border: 1px solid {LINE}; border-top: 3px solid #D9483B; background: #FFFFFF; padding: 14px 16px; margin-top: 12px; }}
-        .inc.HIGH {{ border-top-color: #E58A35; }}
-        .inc.MEDIUM, .inc.MODERATE {{ border-top-color: #75818A; }}
-        .inc.LOW {{ border-top-color: #238C78; }}
-        .ih {{ display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font: 600 11px ui-monospace, Menlo, monospace; color: {MUTED}; margin-bottom: 6px; }}
-        .ih-left {{ display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
-        .tg {{ display: inline-block !important; white-space: nowrap !important; line-height: 1.2 !important; font: 600 10px 'Inter', sans-serif !important; letter-spacing: .1em !important; text-transform: uppercase !important; padding: 3px 8px !important; border: 1px solid currentColor !important; background: #FFFFFF !important; }}
-        .tg.CRITICAL {{ color: #D9483B !important; border-color: #D9483B !important; background: #FDF2F3 !important; }}
-        .tg.HIGH {{ color: #E58A35 !important; border-color: #E58A35 !important; background: #FBF3EA !important; }}
-        .tg.MEDIUM, .tg.MODERATE {{ color: #75818A !important; border-color: #75818A !important; }}
-        .tg.LOW, .tg.RESOLVED {{ color: #238C78 !important; border-color: #238C78 !important; background: #F0F7F4 !important; }}
-        .tg.FLOOD, .tg.WATER, .tg.MEDICAL {{ color: #5C7380 !important; border-color: #5C7380 !important; background: #F2F6FA !important; }}
-        .tg.HEATWAVE, .tg.CYCLONE, .tg.RESCUE, .tg.SHELTER, .tg.FOOD {{ color: #E58A35 !important; border-color: #E58A35 !important; background: #FBF3EA !important; }}
-        .inc h3 {{ font: 600 17px 'Playfair Display', serif !important; margin: 6px 0 4px !important; color: {NAVY} !important; }}
-        .inc p {{ margin: 0 0 10px; font-size: 12.5px; color: #263238; line-height: 1.45; }}
-        .ch {{ display: flex; gap: 6px; flex-wrap: wrap; }}
-        .ch span {{ display: inline-block; font: 500 11px 'Inter', sans-serif; border: 1px solid {LINE}; background: {IVORY}; padding: 4px 8px; color: {TEXT}; white-space: nowrap; }}
-        .ch .ai {{ color: #238C78; border-color: #238C7866; background: #F0F7F4; font-weight: 600; }}
-        .if {{ display: flex; justify-content: space-between; font-size: 11px; color: {MUTED}; margin-top: 10px; flex-wrap: wrap; gap: 6px; }}
-        .bar {{ height: 6px; background: #E1E6E9; margin: 6px 0 14px; }}
-        .bar i {{ display: block; height: 100%; background: #5C7380; }}
-        .bar i.hot {{ background: #D9483B; }}
-        .bh {{ display: flex; justify-content: space-between; font-size: 12.5px; gap: 10px; color: {TEXT}; }}
-        .cf {{ border: 1px solid {LINE}; padding: 12px 14px; margin-bottom: 10px; background: #FFFFFF; }}
-        .cf b {{ display: block; font: 600 11px 'Inter', sans-serif; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 5px; }}
-        .cf p {{ margin: 0 0 4px; font-size: 13px; color: {TEXT}; }}
-        .cf small {{ color: {MUTED}; font-size: 11.5px; }}
-        .cf.bad {{ border-color: #D9483B66; background: #FDF2F3; border-left: 4px solid #D9483B; }}
-        .cf.bad b {{ color: #D9483B; }}
-        .cf.good {{ border-color: #238C7866; background: #F0F7F4; border-left: 4px solid #238C78; }}
-        .cf.good b {{ color: #238C78; }}
-        .bc {{ border: 1px solid {LINE}; border-top: 3px solid {LINE}; padding: 14px 16px; margin-bottom: 12px; background: #FFFFFF; }}
-        .bc .bt2 {{ display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font: 600 10.5px 'Inter', sans-serif; letter-spacing: .1em; text-transform: uppercase; color: {EYEBROW}; margin-bottom: 8px; }}
-        .bc p {{ margin: 5px 0; font: 400 13.5px/1.65 'Noto Sans Devanagari', 'Inter', sans-serif; color: {TEXT}; }}
-        .bc b {{ color: {NAVY}; }}
-        .bc .en {{ color: {MUTED}; font-size: 12.5px; }}
-        .saarthi-foot {{ max-width: 1400px; margin: 18px auto 0; padding: 16px 32px 12px; border-top: 1px solid {LINE}; text-align: center; font-size: 12px; color: {MUTED}; }}
+        /* Alert Cards & Progress Bars */
+        .saarthi-alert-card {{ border: 1px solid #E6ECF0; border-left: 3.5px solid {RED}; border-radius: 6px; padding: 9px 12px; margin-bottom: 8px; background: {WHITE}; }}
+        .saarthi-alert-card.high {{ border-left-color: {ORANGE}; }}
+        .saarthi-alert-card.moderate {{ border-left-color: {YELLOW}; }}
+        .saarthi-alert-card.low {{ border-left-color: {BLUE}; }}
+        .saarthi-alert-card.resolved {{ border-left-color: {TEAL}; }}
+        .saarthi-alert-top {{ display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }}
+        .saarthi-alert-title {{ font-size: 12.5px; font-weight: 600; color: {NAVY}; }}
+        .saarthi-alert-meta {{ display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: {MUTED_GREY}; margin-top: 4px; }}
+        .saarthi-cap-row {{ margin-bottom: 9px; }}
+        .saarthi-cap-row:last-child {{ margin-bottom: 2px; }}
+        .saarthi-cap-head {{ display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; color: {CHARCOAL}; margin-bottom: 4px; }}
+        .saarthi-cap-track {{ height: 6px; background: {BG_GREY}; border-radius: 999px; overflow: hidden; }}
+        .saarthi-cap-fill {{ height: 100%; border-radius: 999px; }}
+        .saarthi-code-badge {{ font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: {BG_GREY}; color: {NAVY}; border: 1px solid {LINE}; }}
+        .saarthi-cascade-chain {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 6px 0; }}
+        .saarthi-cascade-step {{ border: 1px solid #E6ECF0; border-top: 3px solid {STEEL}; border-radius: 6px; padding: 9px 11px; background: {INSET}; }}
+        .saarthi-cascade-step b {{ display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: {MUTED_GREY}; margin-bottom: 3px; }}
+        .saarthi-cascade-step div {{ font-size: 12px; font-weight: 600; color: {NAVY}; line-height: 1.35; }}
+        @media (max-width: 1100px) {{ .saarthi-metrics, .saarthi-cascade-chain {{ grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }} }}
         </style>""",
         unsafe_allow_html=True)
 
 
 def page_fit_styles():
-    """Keep the operational pages inside the frame without crushing table cells."""
+    """Keep the operational pages responsive inside the frame without crushing table columns."""
     st.markdown(
         """<style>
         [data-testid="stColumn"] { min-width: 0 !important; }
@@ -408,160 +467,95 @@ def page_fit_styles():
         unsafe_allow_html=True)
 
 
-def _go_page(page_name):
-    """Callback executed before script rerun so nav_page updates in a single pass."""
-    st.session_state["nav_page"] = page_name
-
-
 def command_bar(page, live):
-    """Royal Navy & Gold header banner with embedded live KPIs, matching Saarthi – Emergency Command Center.html."""
-    state = "LIVE" if live else "HOLD"
-    group_map = {
-        "Monitor": ("Situation Overview", "Early Warnings", "Severity & Vulnerability"),
-        "Respond": ("Allocation", "Roads & Hospitals", "Supply Tracking", "Field Requests"),
-        "Analyse": ("Intake & Triage", "Ripple", "What-If", "Plan Challenger", "Coordinator"),
-        "Demo": ("Scenario Tests",),
-    }
-    pills_html = []
-    for grp, pages in group_map.items():
-        cls = "on" if page in pages else ""
-        pills_html.append(f'<span class="{cls}">{html.escape(grp)}</span>')
-
+    """Top EOC Navigation/Header + Live Emergency Alert Ticker:
+    Displays current date/time, overall operational status, honest simulation/auto-refresh connection
+    indicator, active incident count, queued alert notification badge, and authority designation."""
     sev = data.severity()
-    plan = data.get_plan()
-    crit_zones = sum(1 for z in sev if z["level"] == "Critical")
-    open_sos = data.read("SELECT COUNT(*) AS n FROM incidents WHERE status='OPEN'")[0]["n"]
-    free_beds = sum(int(h["available_beds"] or 0) for h in data.read("SELECT available_beds FROM hospitals"))
-    blocked_rds = data.read("SELECT COUNT(*) AS n FROM roads WHERE status='BLOCKED'")[0]["n"]
-    ok_ledger, _, _ = data.verify_ledger()
+    crit_zones = [z for z in sev if z["level"] == "Critical"]
+    high_zones = [z for z in sev if z["level"] == "High"]
+    open_incidents = data.read("SELECT COUNT(*) AS n FROM incidents WHERE status != 'RESOLVED'")[0]["n"]
+    queued_alerts = data.read("SELECT COUNT(*) AS n FROM alerts WHERE sms_status='QUEUED'")[0]["n"]
+    blocked_roads = data.read("SELECT * FROM roads WHERE status='BLOCKED'")
+    full_hosps = data.read("SELECT * FROM hospitals WHERE available_beds = 0")
 
-    kpis = [
-        (str(open_sos), "Active SOS calls"),
-        (f"{crit_zones} / {len(sev)}", "Critical zones"),
-        (str(free_beds), "Free hospital beds"),
-        (str(blocked_rds), "Roads blocked"),
-        (f"v{plan.get('version', 1)} ({plan.get('changed', 0)} Δ)", "Active plan (" + ("Ledger OK" if ok_ledger else "TAMPERED") + ")"),
-    ]
-    kpi_html = "".join(f'<div><div class="n">{html.escape(v)}</div><div class="l">{html.escape(lbl)}</div></div>' for v, lbl in kpis)
-    pills_str = "".join(pills_html)
-    page_esc = html.escape(page)
-    page_up = html.escape(page.upper())
+    if crit_zones:
+        op_status = "STATUS: CRITICAL RESPONSE"
+        op_col = RED
+    elif high_zones:
+        op_status = "STATUS: ELEVATED WATCH"
+        op_col = ORANGE
+    else:
+        op_status = "STATUS: NOMINAL"
+        op_col = TEAL
+
+    conn_label = f"AUTO-REFRESH ({REFRESH_SECONDS}S) · DEMO DB" if live else "SIMULATION / DEMO DATA (HOLD)"
+    conn_col = TEAL if live else ORANGE
+    timestamp = data.now()
+
+    # Build scrolling alert ticker items from real database records
+    ticker_parts = []
+    for z in crit_zones:
+        ticker_parts.append(
+            f'<span><b style="color:#FCA5A5;">CRITICAL:</b> {html.escape(z["disaster_type"])} warning — '
+            f'{html.escape(z["name"])} (Score {z["score"]})</span>'
+        )
+    for z in high_zones:
+        ticker_parts.append(
+            f'<span><b style="color:#FCD34D;">HIGH:</b> {html.escape(z["disaster_type"])} watch — '
+            f'{html.escape(z["name"])} (Score {z["score"]})</span>'
+        )
+    for h in full_hosps:
+        ticker_parts.append(
+            f'<span><b style="color:#FCA5A5;">HOSPITAL FULL:</b> {html.escape(h["name"])} ({html.escape(h["zone"])}) — 0 free beds</span>'
+        )
+    for r in blocked_roads:
+        ticker_parts.append(
+            f'<span><b style="color:#FCD34D;">ROUTE BLOCKED:</b> {html.escape(r["id"])} ({html.escape(r["a"])} to {html.escape(r["b"])})</span>'
+        )
+    if not ticker_parts:
+        ticker_parts.append('<span>All monitored corridors and district hospitals operating within baseline parameters.</span>')
+
+    ticker_html = '<span class="saarthi-ticker-sep">|</span>'.join(ticker_parts)
 
     st.markdown(
-        f"""<div class="royal"><svg class="pat" viewBox="0 0 1440 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><pattern id="jl" width="64" height="64" patternUnits="userSpaceOnUse"><path d="M32 2L62 32L32 62L2 32Z" fill="none" stroke="#E1E6E9" stroke-opacity=".2"/><circle cx="32" cy="32" r="9" fill="none" stroke="#E1E6E9" stroke-opacity=".2"/><path d="M0 0L64 64M64 0L0 64" stroke="#E1E6E9" stroke-opacity=".06"/></pattern><line id="sp" x1="1250" y1="-90" x2="1250" y2="450"/></defs><rect width="1440" height="360" fill="url(#jl)"/><g fill="none" stroke="#E1E6E9" stroke-opacity=".34"><circle cx="1250" cy="180" r="270" stroke-width="2"/><circle cx="1250" cy="180" r="245"/><circle cx="1250" cy="180" r="48" stroke-width="2"/><use href="#sp"/><use href="#sp" transform="rotate(15 1250 180)"/><use href="#sp" transform="rotate(30 1250 180)"/><use href="#sp" transform="rotate(45 1250 180)"/><use href="#sp" transform="rotate(60 1250 180)"/><use href="#sp" transform="rotate(75 1250 180)"/><use href="#sp" transform="rotate(90 1250 180)"/><use href="#sp" transform="rotate(105 1250 180)"/><use href="#sp" transform="rotate(120 1250 180)"/><use href="#sp" transform="rotate(135 1250 180)"/><use href="#sp" transform="rotate(150 1250 180)"/><use href="#sp" transform="rotate(165 1250 180)"/></g></svg><header class="hd"><div class="row"><div class="brand"><svg width="44" height="44" viewBox="0 0 48 48" aria-hidden="true" fill="none" stroke="#E1E6E9" stroke-width="1.6"><circle cx="24" cy="24" r="21"/><circle cx="24" cy="24" r="5"/><line x1="24" y1="3" x2="24" y2="45"/><line x1="3" y1="24" x2="45" y2="24"/><line x1="9.2" y1="9.2" x2="38.8" y2="38.8"/><line x1="38.8" y1="9.2" x2="9.2" y2="38.8"/><line x1="13.5" y1="4.5" x2="34.5" y2="43.5"/><line x1="34.5" y1="4.5" x2="13.5" y2="43.5"/></svg><div><div class="bn">SAARTHI</div><div class="bt">ECC · Multi-agent coordinator (PS-03)</div></div></div><div class="pills">{pills_str}</div></div><div class="row" style="align-items:flex-end"><h1>{page_esc}<span class="chip">All agents online</span></h1><div class="kp">{kpi_html}</div></div><div class="demo-strip"><span class="demo-badge on">{page_esc}</span><span class="demo-badge">Plan v{plan.get('version', 1)} · {plan.get('solver', 'Active')}</span><span class="ph">DEMO CONTROLS · Mode: <b>{state}</b> | Active View: <b>{page_up}</b></span></div></header></div>""",
+        '<div class="saarthi-eoc-header">'
+        '<div class="saarthi-eoc-brand">'
+        '<div style="min-width:0;">'
+        '<div class="saarthi-mark">SAARTHI · STATE EMERGENCY OPERATIONS CENTRE (MAHARASHTRA)</div>'
+        f'<div class="saarthi-page">{html.escape(page)}</div>'
+        '</div>'
+        '</div>'
+        '<div class="saarthi-eoc-meta">'
+        f'<div class="saarthi-eoc-pill" style="border-left:3px solid {op_col};">'
+        f'<span style="width:7px;height:7px;border-radius:50%;background:{op_col};display:inline-block;"></span>'
+        f'{op_status}</div>'
+        f'<div class="saarthi-eoc-pill">ACTIVE INCIDENTS: <b style="color:#FFFFFF;">{open_incidents}</b></div>'
+        f'<div class="saarthi-eoc-pill">ALERTS QUEUED: <b style="color:#FCD34D;">{queued_alerts}</b></div>'
+        f'<div class="saarthi-eoc-pill">'
+        f'<span style="width:6px;height:6px;border-radius:50%;background:{conn_col};display:inline-block;"></span>'
+        f'{conn_label}</div>'
+        f'<div class="saarthi-eoc-clock">{html.escape(timestamp)}</div>'
+        '</div>'
+        '</div>'
+        '<div class="saarthi-ticker">'
+        '<span class="saarthi-ticker-tag">LIVE ALERT FEED</span>'
+        f'<div class="saarthi-ticker-items">{ticker_html}</div>'
+        '</div>',
         unsafe_allow_html=True)
 
 
-def render_top_controls():
-    """Clickable top navigation bar and demo scenario buttons right below the Royal banner.
-    Uses on_click callbacks so every button switches pages or runs scenarios on the very first click."""
-    current = st.session_state.get("nav_page", "Situation Overview")
-    with st.container(border=True):
-        st.markdown('<div class="eb">Command Center Navigation — Click any module to switch views</div>', unsafe_allow_html=True)
-        all_pages = list(PAGES.keys())
-        row1 = st.columns(7)
-        for col, label in zip(row1, all_pages[:7]):
-            is_cur = current == label
-            col.button(
-                label,
-                key=f"top_btn_{label}",
-                type="primary" if is_cur else "secondary",
-                use_container_width=True,
-                on_click=_go_page,
-                args=(label,),
-            )
-        row2 = st.columns(6)
-        for col, label in zip(row2, all_pages[7:]):
-            is_cur = current == label
-            col.button(
-                label,
-                key=f"top_btn_{label}",
-                type="primary" if is_cur else "secondary",
-                use_container_width=True,
-                on_click=_go_page,
-                args=(label,),
-            )
-
-        st.markdown('<div class="eb" style="margin-top:6px;">Live Demo Controls &amp; Stress Scenarios (A–E)</div>', unsafe_allow_html=True)
-        b1, b2, b3, b4, b5, b6, b7 = st.columns(7)
-        if b1.button("🌀 Cyclone", key="top_cyclone", use_container_width=True, help="Cyclone intensifies near Ratnagiri & Sindhudurg"):
-            data.demo_cyclone()
-            plan = data.get_plan()
-            st.session_state["last_demo_banner"] = (
-                f"🌀 Cyclone intensifies executed: Ratnagiri (95%) & Sindhudurg (85%) risk jumped; "
-                f"Red alert queued for Sindhudurg. Plan v{plan['version']} recalculated ({plan['changed']} allocations changed)."
-            )
-            st.rerun()
-        if b2.button("B · Hospital", key="top_sc_b", use_container_width=True, help=data.SCENARIOS["B"][1]):
-            res = data.run_scenario("B")
-            st.session_state["scenario_result"] = res
-            st.session_state["last_demo_banner"] = (
-                f"🏥 Scenario B ({res['title']}): Ratnagiri Civil Hospital beds set to 0. "
-                f"Plan v{res['version']} recalculated ({res['changed']} allocations changed)."
-            )
-            st.rerun()
-        if b3.button("C · Road Cut", key="top_sc_c", use_container_width=True, help=data.SCENARIOS["C"][1]):
-            res = data.run_scenario("C")
-            st.session_state["scenario_result"] = res
-            st.session_state["last_demo_banner"] = (
-                f"⛔ Scenario C ({res['title']}): Roads R8 and R9 blocked. "
-                f"Plan v{res['version']} recalculated ({res['changed']} allocations changed)."
-            )
-            st.rerun()
-        if b4.button("D · Supplies", key="top_sc_d", use_container_width=True, help=data.SCENARIOS["D"][1]):
-            res = data.run_scenario("D")
-            st.session_state["scenario_result"] = res
-            st.session_state["last_demo_banner"] = (
-                f"📦 Scenario D ({res['title']}): +1,500 Food kits & +600 Medical kits added at Kolhapur Depot. "
-                f"Plan v{res['version']} recalculated ({res['changed']} allocations changed)."
-            )
-            st.rerun()
-        if b5.button("E · Multi-Hit", key="top_sc_e", use_container_width=True, help=data.SCENARIOS["E"][1]):
-            res = data.run_scenario("E")
-            st.session_state["scenario_result"] = res
-            st.session_state["last_demo_banner"] = (
-                f"⚡ Scenario E ({res['title']}): Cyclone worsens, Road R6 blocked, Thane Civil full, +40 patients in Raigad. "
-                f"Plan v{res['version']} recalculated ({res['changed']} allocations changed)."
-            )
-            st.rerun()
-        if b6.button("🚨 Tamper", key="top_tamper", use_container_width=True, help="Tamper with a past supply ledger record"):
-            data.demo_tamper()
-            ok_l, bad_id, _ = data.verify_ledger()
-            st.session_state["last_demo_banner"] = (
-                f"🚨 Ledger Tamper executed: Record #{bad_id} was altered directly in SQLite! "
-                "SHA-256 verification now flags the broken hash chain (see Supply Tracking)."
-            )
-            st.rerun()
-        if b7.button("↺ Reset (A)", key="top_sc_a", type="primary", use_container_width=True, help="Scenario A: Reset to normal baseline"):
-            res = data.run_scenario("A")
-            st.session_state["scenario_result"] = res
-            st.session_state["last_demo_banner"] = (
-                f"✅ Scenario A ({res['title']}): Database reset to normal starting conditions (Plan v{res['version']})."
-            )
-            st.rerun()
-
-        if st.session_state.get("last_demo_banner"):
-            msg = st.session_state["last_demo_banner"]
-            b_msg, b_go1, b_go2, b_close = st.columns([4.2, 1.1, 1.1, 0.6])
-            ui_success(msg, target=b_msg)
-            b_go1.button("View Allocation", key="banner_go_alloc", use_container_width=True, on_click=_go_page, args=("Allocation",))
-            b_go2.button("Scenario Checks", key="banner_go_scen", use_container_width=True, on_click=_go_page, args=("Scenario Tests",))
-            if b_close.button("✕", key="banner_dismiss", use_container_width=True):
-                st.session_state.pop("last_demo_banner", None)
-                st.rerun()
-
-
+# Clean Voyager street basemap for clear GIS visibility
 _DARK_STYLE = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json"
 _PIXELS = DeckString("pixels")
 
 
 def render_deck(layers, height, key):
-    """Draw one map inside the Royal Navy map frame."""
+    """Draw one GIS map inside the EOC map container with latest update timestamp."""
     st.markdown(
-        '<div class="saarthi-map-header">'
-        '<div><div class="eb" style="color:#C5D0D6">Coastal Maharashtra · MMR &amp; Konkan</div>'
-        '<h3>Live operations map</h3></div>'
-        '<div class="sub">Interactive geospatial layer · hover markers for recorded details</div>'
+        '<div class="saarthi-map-bar">'
+        '<div class="saarthi-map-bar-title">GIS Situational Awareness &amp; Cascading Impact Map</div>'
+        f'<div class="saarthi-map-bar-sub">Last map update: {html.escape(data.now())} (Recorded DB)</div>'
         '</div>',
         unsafe_allow_html=True)
     st.pydeck_chart(pdk.Deck(layers=layers,
@@ -577,14 +571,14 @@ def _rgb_hex(rgb):
 
 
 def map_legend(items):
-    """Circular colour dots inside the dark Royal Navy map footer (.lg), matching the HTML reference."""
+    """Clear severity and asset legends below the GIS map."""
     if not items:
         return
     chips = []
     for colour, caption in items:
         chips.append(
-            '<span style="display:inline-flex;align-items:center;margin-right:6px;">'
-            f'<i style="width:10px;height:10px;background:{colour};border-radius:50%;display:inline-block;margin-right:6px;"></i>'
+            '<span style="display:inline-flex;align-items:center;gap:6px;font-weight:500;">'
+            f'<span style="width:10px;height:10px;background:{colour};border-radius:50%;border:1px solid rgba(16,37,54,0.2);display:inline-block;"></span>'
             f"{html.escape(str(caption))}</span>"
         )
     st.markdown('<div class="saarthi-legend">' + "".join(chips) + "</div>", unsafe_allow_html=True)
@@ -593,71 +587,79 @@ def map_legend(items):
 def _place_labels(frame, text_column, offset):
     """Names already stored on the rows. Nothing here creates a new place."""
     return pdk.Layer("TextLayer", frame, get_position="[lon, lat]", get_text=text_column, get_size=12,
-                     get_color=[38, 50, 56, 235], get_text_anchor="'middle'", get_alignment_baseline="'bottom'",
+                     get_color=[16, 37, 54, 245], get_text_anchor="'middle'", get_alignment_baseline="'bottom'",
                      get_pixel_offset=offset, billboard=True, font_family="sans-serif", background=True,
-                     get_background_color=[255, 255, 255, 220], background_padding=[4, 2, 4, 2], pickable=False)
+                     get_background_color=[255, 255, 255, 230], background_padding=[4, 2, 4, 2], pickable=False)
 
 
-def draw_map(layers, height=480, key="map"):  # map with switchable layers
+def draw_map(layers, height=540, key="map"):  # prominent GIS map with switchable layers
     choices = ["Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments"]  # every layer
-    shown = st.multiselect("Map layers", choices, default=layers, key=key)  # operator picks which to show
+    shown = st.multiselect("Map Layers Control (Toggle Categories)", choices, default=layers, key=key)  # operator picks which to show
     deck_layers = []  # the pydeck layers to draw, bottom first
     labels = []  # place names drawn after the symbols
     legend = []
-    if "Risk zones" in shown:  # outline only, so roads and facilities stay visible
+    if "Risk zones" in shown:  # Consistent severity colours: Critical=Red, High=Orange, Moderate=Yellow, Low=Blue
         z = df(data.severity())  # zones with scores
         z["color"] = z["level"].map(LEVEL_RGB)  # colour by level
-        z["label"] = z["name"] + ": " + z["level"] + ", score " + z["score"].astype(str)  # hover text
-        deck_layers.append(pdk.Layer("ScatterplotLayer", z, get_position="[lon, lat]", get_line_color="color",
-                                     filled=False, stroked=True, get_radius=18, radius_units=_PIXELS,
-                                     line_width_min_pixels=2, pickable=True))
-        labels.append(_place_labels(z, "name", [0, -14]))
-        legend.extend((_rgb_hex(LEVEL_RGB[name]), name) for name in ("Critical", "High", "Moderate", "Low"))
+        z["fill_color"] = z["level"].map(lambda lvl: LEVEL_RGB.get(lvl, [43, 108, 176]) + [52])
+        z["label"] = z["name"] + ": " + z["level"] + " (score " + z["score"].astype(str) + ", hazard " + z["disaster_type"] + ")"
+        deck_layers.append(pdk.Layer("ScatterplotLayer", z, get_position="[lon, lat]",
+                                     get_fill_color="fill_color", get_line_color="color",
+                                     filled=True, stroked=True, get_radius=22, radius_units=_PIXELS,
+                                     line_width_min_pixels=2.5, pickable=True))
+        labels.append(_place_labels(z, "name", [0, -18]))
+        legend.extend((
+            (RED, "Critical Zone (Red)"),
+            (ORANGE, "High Risk Area (Orange)"),
+            (YELLOW, "Moderate Risk (Yellow)"),
+            (BLUE, "Low Risk (Blue)"),
+        ))
     if "Roads" in shown:  # one line per road
         r = df(data.roads_with_positions())  # roads with both ends' positions
         r["path"] = r.apply(lambda x: [[x["a_lon"], x["a_lat"]], [x["b_lon"], x["b_lat"]]], axis=1)  # line points
         r["color"] = r["status"].map(ROAD_RGB)  # colour by condition
-        r["width"] = r["status"].map({"OPEN": 2, "SLOW": 3, "BLOCKED": 3})  # screen pixels; problem roads drawn thicker
+        r["width"] = r["status"].map({"OPEN": 2, "SLOW": 3.5, "BLOCKED": 4})  # problem roads drawn thicker
         r["label"] = r["id"] + ": " + r["a"] + " to " + r["b"] + ", " + r["status"]  # hover text
         deck_layers.append(pdk.Layer("PathLayer", r, get_path="path", get_color="color", get_width="width",
                                      width_units=_PIXELS, pickable=True))  # add the layer
-        legend.extend((_rgb_hex(ROAD_RGB[name]), name.capitalize()) for name in ("OPEN", "SLOW", "BLOCKED"))
-    if "Hospitals" in shown:  # small dots: purple with free beds, grey when full
+        legend.extend((_rgb_hex(ROAD_RGB[name]), f"Route {name.capitalize()}") for name in ("OPEN", "SLOW", "BLOCKED"))
+    if "Hospitals" in shown:  # Green with free beds, Red when full
         h = df(data.read("SELECT * FROM hospitals"))  # hospitals
-        h["color"] = h["available_beds"].apply(lambda b: [35, 140, 120] if b > 0 else [117, 129, 138])  # grey when full
+        h["color"] = h["available_beds"].apply(lambda b: [38, 155, 117] if b > 0 else [231, 71, 71])
         h["label"] = h["name"] + ": " + h["available_beds"].astype(str) + "/" + h["total_beds"].astype(str) + " beds free"
         deck_layers.append(pdk.Layer("ScatterplotLayer", h, get_position="[lon, lat]", get_fill_color="color",
                                      get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=7,
                                      radius_units=_PIXELS, line_width_min_pixels=1.5, pickable=True))
         labels.append(_place_labels(h, "name", [0, 16]))
-        legend.append(("#238C78", "Hospital with free beds"))
-        legend.append(("#75818A", "Hospital full"))
-    if "Supply hubs" in shown:  # navy markers, distinct from orange shipments
+        legend.append((TEAL, "Hospital (Beds Available)"))
+        legend.append((RED, "Hospital (At Capacity)"))
+    if "Supply hubs" in shown:  # Steel Blue / Navy depots
         hb = df(data.read("SELECT * FROM hubs"))  # hubs
-        hb["label"] = hb["name"] + " (supply hub)"  # hover text
-        deck_layers.append(pdk.Layer("ScatterplotLayer", hb, get_position="[lon, lat]", get_fill_color=[20, 43, 59],
-                                     get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=8,
-                                     radius_units=_PIXELS, line_width_min_pixels=2, pickable=True))
+        hb["label"] = hb["name"] + " (relief distribution hub)"  # hover text
+        deck_layers.append(pdk.Layer("ScatterplotLayer", hb, get_position="[lon, lat]",
+                                     get_fill_color=[25, 60, 80], get_line_color=[255, 255, 255],
+                                     filled=True, stroked=True, get_radius=8, radius_units=_PIXELS,
+                                     line_width_min_pixels=2, pickable=True))
         labels.append(_place_labels(hb, "name", [0, 28]))
-        legend.append(("#142B3B", "Supply hub"))
-    if "SOS requests" in shown:  # small SOS dots
+        legend.append((STEEL, "Relief Distribution Hub"))
+    if "SOS requests" in shown:  # Red incident markers, Orange in-transit
         i = df(data.read("SELECT * FROM incidents WHERE status != 'RESOLVED'"))  # active requests
         if len(i):  # only if any
             i["color"] = i["status"].map(SOS_RGB)  # red open, orange in transit
-            i["label"] = "SOS #" + i["id"].astype(str) + " " + i["need_type"] + ": " + i["people"].astype(str) + " people"
+            i["label"] = "SOS #" + i["id"].astype(str) + " " + i["need_type"] + " (" + i["zone"] + "): " + i["people"].astype(str) + " people [" + i["status"] + "]"
             deck_layers.append(pdk.Layer("ScatterplotLayer", i, get_position="[lon, lat]", get_fill_color="color",
-                                         get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=6,
+                                         get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=7,
                                          radius_units=_PIXELS, line_width_min_pixels=1.5, pickable=True))
-        legend.append((_rgb_hex(SOS_RGB["OPEN"]), "SOS open"))
-        legend.append((_rgb_hex(SOS_RGB["IN_TRANSIT"]), "SOS in transit"))
-    if "Shipments" in shown:  # gold dots halfway along moving shipments
+        legend.append((RED, "Active Incident (Open SOS)"))
+        legend.append((ORANGE, "Response Team En Route"))
+    if "Shipments" in shown:  # Orange moving shipment markers
         s = df([x for x in data.shipments_with_positions() if "lat" in x])  # moving ones only
         if len(s):  # only if any
             s["label"] = s["shipment_id"] + ": " + s["qty"].astype(str) + " " + s["item"] + " to " + s["destination"]
-            deck_layers.append(pdk.Layer("ScatterplotLayer", s, get_position="[lon, lat]", get_fill_color=[229, 138, 53],
-                                         get_line_color=[255, 255, 255], stroked=True, filled=True, line_width_min_pixels=1.5,
-                                         get_radius=6, radius_units=_PIXELS, pickable=True))
-        legend.append(("#E58A35", "Shipment on the move"))
+            deck_layers.append(pdk.Layer("ScatterplotLayer", s, get_position="[lon, lat]", get_fill_color=[230, 162, 60],
+                                         get_line_color=[16, 37, 54], stroked=True, filled=True, line_width_min_pixels=1.5,
+                                         get_radius=6.5, radius_units=_PIXELS, pickable=True))
+        legend.append((ORANGE, "Relief Shipment In Transit"))
     deck_layers.extend(labels)
     render_deck(deck_layers, height, f"{key}_deck")
     map_legend(legend)
@@ -666,89 +668,21 @@ def draw_map(layers, height=480, key="map"):  # map with switchable layers
 # ---------------------------------------------------------------------
 # 3. PAGES
 # ---------------------------------------------------------------------
-def _render_ripple_svg(origin_zone="Ratnagiri"):
-    """Dynamic SVG Ripple cascade network diagram matching Saarthi – Emergency Command Center.html,
-    driven by live database rows from ripple_agent.analyse()."""
-    try:
-        res = ripple_agent.analyse(origin_zone)
-    except Exception:
-        return
-    p_risk = res["primary"].get("risk") or {}
-    p_prob = int(round(float(p_risk.get("probability") or 0) * 100))
-    p_type = p_risk.get("disaster_type") or "Hazard"
-    sec_zones = res.get("secondary") or []
-    ext_zones = res.get("extended") or []
-    roads = res["primary"].get("roads") or []
-    hospitals = res.get("hospitals") or []
-
-    def col_for(pct):
-        if pct >= 70:
-            return "#D63B45"
-        if pct >= 50:
-            return "#E58A35"
-        if pct >= 35:
-            return "#8FA37E"
-        return "#3B8FD0"
-
-    mid_nodes = []
-    for idx_r, r in enumerate(roads[:4]):
-        st_word = r.get("status", "OPEN")
-        pct = 90 if st_word == "BLOCKED" else (65 if st_word == "SLOW" else max(25, p_prob - 15 * idx_r))
-        mid_nodes.append((f"{r['id']} ({r['a']}–{r['b']}) · {st_word}", pct, 340, 45 + idx_r * 68))
-    if not mid_nodes:
-        for idx_s, z in enumerate(sec_zones[:4]):
-            zr = z.get("risk") or {}
-            pct = int(round(float(zr.get("probability") or 0.4) * 100))
-            mid_nodes.append((f"{z['zone']} (1-hop)", pct, 340, 55 + idx_s * 70))
-
-    right_nodes = []
-    for idx_h, h in enumerate(hospitals[:4]):
-        occ = h.get("occupancy")
-        pct = int(round(float(occ) * 100)) if occ is not None else 35
-        right_nodes.append((f"{h['zone']}: {h.get('name') or 'No hospital'}", pct, 625, 50 + idx_h * 68))
-    if not right_nodes:
-        for idx_e, z in enumerate(ext_zones[:3]):
-            zr = z.get("risk") or {}
-            pct = int(round(float(zr.get("probability") or 0.3) * 100))
-            right_nodes.append((f"{z['zone']} (2-hop)", pct, 625, 65 + idx_e * 80))
-
-    lines_svg = []
-    for mn in mid_nodes:
-        lines_svg.append(f'<line x1="95" y1="150" x2="{mn[2]}" y2="{mn[3]}"/>')
-        for rn in right_nodes:
-            lines_svg.append(f'<line x1="{mn[2]}" y1="{mn[3]}" x2="{rn[2]}" y2="{rn[3]}"/>')
-
-    circles_svg = [
-        f'<circle cx="95" cy="150" r="12" fill="{col_for(p_prob)}" stroke="#fff" stroke-width="2"/>'
-        f'<text x="95" y="130" text-anchor="middle" font-family="Inter" font-size="11.5" font-weight="600" fill="#142B3B">'
-        f'{html.escape(origin_zone)} {html.escape(p_type)} ({p_prob}%)</text>'
-    ]
-    for label, pct, cx_n, cy_n in mid_nodes + right_nodes:
-        circles_svg.append(
-            f'<circle cx="{cx_n}" cy="{cy_n}" r="11" fill="{col_for(pct)}" stroke="#fff" stroke-width="2"/>'
-            f'<text x="{cx_n}" y="{cy_n - 16}" text-anchor="middle" font-family="Inter" font-size="11" font-weight="600" fill="#142B3B">'
-            f'{html.escape(label)} ({pct}%)</text>'
-        )
-
-    st.markdown(
-        f'<svg viewBox="0 0 760 295" width="100%" role="img" aria-label="Ripple cascade network">'
-        f'<g stroke="#E1E6E9" stroke-opacity=".6" stroke-width="1.5">{"".join(lines_svg)}</g>'
-        f'{"".join(circles_svg)}</svg>'
-        '<div class="saarthi-description">Cascade exposure by node · primary origin on the left, connecting corridors in the middle, downstream zone hospitals on the right.</div>',
-        unsafe_allow_html=True,
-    )
-
-
-def page_overview():  # PAGE 1: whole situation — matches Saarthi – Emergency Command Center.html layout
-    """Two-column Command Center matching Saarthi – Emergency Command Center.html:
-    Left column: Incident Queue with 2x2 filters, .inc cards, and quick SOS actions.
-    Right column: Live Operations Map (.mp) + 5 interactive Command Center tabs below."""
+def page_overview():  # PAGE 1: Unified Command-Centre Home Screen
+    """Central Monitoring Station Layout (Section 2A, 2B & Section 5):
+    - Top section: Global situation status (Overall disaster status, Active incidents, Critical alerts,
+      Teams deployed, Hospitals under pressure, Unresolved resource requests).
+    - Middle section: Centrepiece GIS map (~62% width) with marker inspector + Right panel (~38% width)
+      with Live Emergency Alerts & Command Activity Log.
+    - Bottom section: Resource overview (Medical supplies, Food & water, Shelter capacity, Hospital capacity,
+      Active response teams/shipments) + Cascading Impact Visualization & 24h Risk Telemetry."""
     page_fit_styles()
     st.markdown(
         """<style>
-        .saarthi-event { padding: 8px 10px; border-top: 1px solid var(--hl); }
-        .saarthi-event-meta { color: var(--mu); font: 500 11px ui-monospace, Menlo, monospace; line-height: 1.3; }
-        .saarthi-event-text { color: var(--ink); margin-top: 2px; font-size: 12.5px; line-height: 1.35; }
+        .saarthi-event { padding: 7px 9px; border-bottom: 1px solid var(--saarthi-line); }
+        .saarthi-event:last-child { border-bottom: none; }
+        .saarthi-event-meta { display: flex; align-items: center; gap: 8px; color: var(--saarthi-muted); font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.3; }
+        .saarthi-event-text { color: var(--saarthi-text); margin-top: 2px; font-size: 0.8rem; line-height: 1.38; }
         </style>""",
         unsafe_allow_html=True)
 
@@ -756,289 +690,251 @@ def page_overview():  # PAGE 1: whole situation — matches Saarthi – Emergenc
     sev_by_zone = {z["name"]: z for z in sev}
     plan = data.get_plan()
     incidents = data.read("SELECT * FROM incidents ORDER BY id DESC")
+    hospitals = data.read("SELECT * FROM hospitals ORDER BY id")
+    alerts_rows = data.read("SELECT * FROM alerts ORDER BY id DESC")
+    shipments = data.current_shipments()
+    inventory = data.read("SELECT item, SUM(qty) AS total_qty FROM inventory GROUP BY item")
+    inv_by_item = {row["item"]: int(row["total_qty"] or 0) for row in inventory}
 
-    left_col, right_col = st.columns([1.05, 2.35])
+    # 1. TOP SECTION — Global Situation Status (6 Equal-Width KPI Cards in 1 Row)
+    crit_zones = [z for z in sev if z["level"] == "Critical"]
+    high_zones = [z for z in sev if z["level"] == "High"]
+    overall_status = "CRITICAL" if crit_zones else ("ELEVATED" if high_zones else "NOMINAL")
+    overall_col = RED if crit_zones else (ORANGE if high_zones else TEAL)
 
-    # LEFT COLUMN: Incident Queue (matches <aside class="panel"> in Saarthi – Emergency Command Center.html)
-    with left_col:
-        with st.container(border=True):
-            st.markdown('<div class="eb">Incident queue</div>', unsafe_allow_html=True)
-            f1, f2 = st.columns(2)
-            urg_filter = f1.selectbox("Severity Level", ["All levels", "Critical", "High", "Moderate", "Low"], key="ov_flt_lvl")
-            need_filter = f2.selectbox("Need / Mode", ["All needs"] + list(data.demo.NEED_TYPES), key="ov_flt_need")
-            f3, f4 = st.columns(2)
-            status_filter = f3.selectbox("Status", ["All status", "OPEN", "IN_TRANSIT", "RESOLVED"], index=1, key="ov_flt_st")
-            zone_filter = f4.selectbox("Zone", ["All zones"] + [z[0] for z in data.demo.ZONES], key="ov_flt_zn")
+    active_incidents = [i for i in incidents if i["status"] != "RESOLVED"]
+    open_sos = [i for i in incidents if i["status"] == "OPEN"]
+    in_transit_sos = [i for i in incidents if i["status"] == "IN_TRANSIT"]
+    queued_red_alerts = sum(1 for a in alerts_rows if a.get("sms_status") == "QUEUED")
+    moving_shipments = [s for s in shipments if s.get("status") in ("DISPATCHED", "IN_TRANSIT")]
+    teams_deployed = len(in_transit_sos) + len(moving_shipments)
+    hosps_under_pressure = sum(
+        1 for h in hospitals
+        if int(h["total_beds"] or 0) > 0 and (int(h["available_beds"] or 0) / int(h["total_beds"])) <= 0.25
+    )
+    unresolved_requests = len(plan.get("shortfalls") or []) + len(plan.get("unplaced") or []) + len(open_sos)
 
-            filtered_inc = []
-            for inc in incidents:
-                z_info = sev_by_zone.get(inc["zone"], {"level": "Moderate", "score": 0, "disaster_type": "None"})
-                if urg_filter != "All levels" and z_info["level"] != urg_filter:
-                    continue
-                if need_filter != "All needs" and inc["need_type"] != need_filter:
-                    continue
-                if status_filter != "All status" and inc["status"] != status_filter:
-                    continue
-                if zone_filter != "All zones" and inc["zone"] != zone_filter:
-                    continue
-                filtered_inc.append((inc, z_info))
+    metric_tiles((
+        ("Overall Disaster Status", overall_status, overall_col),
+        ("Active Incidents", len(active_incidents), RED if active_incidents else TEAL),
+        ("Critical Alerts & Zones", len(crit_zones) + queued_red_alerts, RED if (crit_zones or queued_red_alerts) else TEAL),
+        ("Teams & Units Deployed", teams_deployed, STEEL if teams_deployed else MUTED_GREY),
+        ("Hospitals Under Pressure", f"{hosps_under_pressure} / {len(hospitals)}", ORANGE if hosps_under_pressure else TEAL),
+        ("Unresolved Requests", unresolved_requests, ORANGE if unresolved_requests else TEAL),
+    ))
 
-            st.subheader(f"{len(filtered_inc)} shown")
-            st.caption(f"{len(incidents)} total recorded SOS requests · click actions below to claim, resolve, or log")
-
-            with st.expander("⚡ Quick SOS Actions (Claim / Resolve / Log New SOS)"):
-                open_ids = data.incident_ids(incidents, "OPEN")
-                transit_ids = data.incident_ids(incidents, "IN_TRANSIT")
-                qa1, qa2 = st.tabs(["Claim / Resolve", "Log New SOS"])
-                with qa1:
-                    if open_ids:
-                        with st.form("ov_quick_claim"):
-                            cid = st.selectbox("Open SOS #", open_ids, key="ov_cid")
-                            cteam = st.text_input("Responder Team", "NDRF Rescue Unit Alpha", key="ov_cteam")
-                            if st.form_submit_button("Claim (mark in transit)", type="primary"):
-                                act(data.claim_incident, int(cid), cteam, ok=f"SOS #{cid} claimed")
-                    else:
-                        st.caption("No OPEN requests waiting to be claimed.")
-                    if transit_ids:
-                        with st.form("ov_quick_resolve"):
-                            rid = st.selectbox("In-Transit SOS #", transit_ids, key="ov_rid")
-                            if st.form_submit_button("Mark resolved"):
-                                act(data.resolve_incident, int(rid), ok=f"SOS #{rid} resolved")
-                with qa2:
-                    with st.form("ov_quick_new_sos", clear_on_submit=True):
-                        nz = st.selectbox("Zone", [z[0] for z in data.demo.ZONES], key="ov_nz")
-                        nn = st.selectbox("Need", data.demo.NEED_TYPES, key="ov_nn")
-                        np_cnt = st.number_input("People affected", 1, 5000, 15, key="ov_np")
-                        if st.form_submit_button("Submit SOS", type="primary"):
-                            act(data.add_incident, nz, nn, int(np_cnt), ok="SOS logged, plan recalculated")
-
-            # Render rich .inc cards matching Saarthi – Emergency Command Center.html
-            patient_by_inc = {a["incident_id"]: a for a in plan.get("patients") or []}
-            for inc, z_info in filtered_inc[:8]:
-                lvl_up = str(z_info.get("level") or "Moderate").upper()
-                need_up = str(inc.get("need_type") or "SOS").upper()
-                dtype_up = str(z_info.get("disaster_type") or "HAZARD").upper()
-                assigned = patient_by_inc.get(inc["id"])
-                if assigned:
-                    route_txt = f"Via {', '.join(assigned.get('route') or ['local'])} ({engine.fmt_minutes(assigned.get('minutes'))})"
-                    unit_txt = f"Hospital: {assigned.get('hospital')}"
-                else:
-                    unit_txt = f"Assigned: {inc.get('claimed_by') or 'Awaiting team'}"
-                    route_txt = f"Status: {inc.get('status')}"
-                st.markdown(
-                    f'<article class="inc {html.escape(lvl_up)}">'
-                    f'<div class="ih"><span class="ih-left"><span>SOS-{inc["id"]}</span><span class="tg {html.escape(need_up)}">{html.escape(dtype_up)} · {html.escape(need_up)}</span></span>'
-                    f'<span class="tg {html.escape(lvl_up)}">{html.escape(lvl_up)}</span></div>'
-                    f'<h3>{html.escape(str(inc["zone"]))} · {html.escape(str(inc["need_type"]))} Request</h3>'
-                    f'<p>{html.escape(str(inc["people"]))} citizens affected in {html.escape(str(inc["zone"]))} ({html.escape(dtype_up)} zone probability {float(z_info.get("probability") or 0):.0%}).</p>'
-                    f'<div class="ch"><span>{html.escape(unit_txt)}</span><span>{html.escape(route_txt)}</span>'
-                    f'<span>Score {html.escape(str(z_info.get("score")))}</span><span class="ai">OR-Tools active</span></div>'
-                    f'<div class="if"><span>{html.escape(str(inc["zone"]))} · {html.escape(str(inc["status"]))}</span>'
-                    f'<span>{html.escape(str(inc.get("reported_at") or ""))}</span></div>'
-                    f'</article>',
-                    unsafe_allow_html=True,
-                )
-            if not filtered_inc:
-                st.caption("No incidents match these filters.")
-
-    # RIGHT COLUMN: Map (.mp) + 5 Interactive Tabs below (matches <div class="rc"> in HTML reference)
-    with right_col:
+    # 2. MIDDLE SECTION — Centrepiece Live Incident Map (~62% width) + Right Live Alerts Panel (~38% width)
+    map_col, alert_col = st.columns([1.62, 1.0])
+    with map_col:
         with st.container(border=True):
             draw_map(["Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments"],
-                     height=460, key="ov_map")
+                     height=540, key="ov_map")
+            # Selected Marker / Incident Inspector right beneath the map
+            if active_incidents:
+                inc_options = [
+                    f"SOS #{i['id']} · {i['zone']} · {i['need_type']} ({i['people']} affected) [{i['status']}]"
+                    for i in active_incidents
+                ]
+                picked_inc_label = st.selectbox(
+                    "Inspect Active Incident Marker on Map",
+                    inc_options,
+                    key="ov_marker_inspect",
+                )
+                picked_inc = active_incidents[inc_options.index(picked_inc_label)]
+                z_meta = sev_by_zone.get(picked_inc["zone"], {})
+                z_lvl = z_meta.get("level", "Moderate")
+                lvl_tone = "critical" if z_lvl == "Critical" else ("high" if z_lvl == "High" else ("moderate" if z_lvl == "Moderate" else "low"))
+                st_tone = "critical" if picked_inc["status"] == "OPEN" else ("warning" if picked_inc["status"] == "IN_TRANSIT" else "resolved")
+                st.markdown(
+                    f'<div class="saarthi-alert-card" style="margin-top:4px;margin-bottom:0;background:#F8FAFC;">'
+                    f'<div class="saarthi-alert-top">'
+                    f'<span class="saarthi-alert-title">Marker Selected: SOS #{picked_inc["id"]} — {html.escape(str(picked_inc["zone"]))} ({html.escape(str(picked_inc["need_type"]))})</span>'
+                    f'<span>{status_pill(z_lvl + " Zone", lvl_tone)} {status_pill(picked_inc["status"], st_tone)}</span>'
+                    f'</div>'
+                    f'<div class="saarthi-alert-meta">'
+                    f'<span><b>Coordinates:</b> {picked_inc["lat"]:.4f}, {picked_inc["lon"]:.4f}</span>'
+                    f'<span><b>People Affected:</b> {picked_inc["people"]}</span>'
+                    f'<span><b>Reported:</b> {html.escape(str(picked_inc["reported_at"]))}</span>'
+                    f'<span><b>Assigned Team:</b> {html.escape(str(picked_inc.get("claimed_by") or "Unassigned (Awaiting Dispatch)"))}</span>'
+                    f'</div></div>',
+                    unsafe_allow_html=True,
+                )
+
+    with alert_col:
+        with st.container(border=True):
+            st.subheader("Live emergency alerts")
+            st.caption("Severity-coded early warnings and critical district triggers.")
+            alert_cards = []
+            # Show stored alerts first
+            for al in alerts_rows[:4]:
+                sev_w = str(al.get("severity") or "Red")
+                mapped_lvl = "Critical" if sev_w == "Red" else ("High" if sev_w == "Orange" else "Moderate")
+                cls_lvl = mapped_lvl.lower()
+                sms_st = str(al.get("sms_status") or "QUEUED")
+                st_tone = "warning" if sms_st == "QUEUED" else ("safe" if sms_st == "SENT" else "navy")
+                alert_cards.append(
+                    f'<div class="saarthi-alert-card {cls_lvl}">'
+                    f'<div class="saarthi-alert-top">'
+                    f'<span class="saarthi-alert-title">{html.escape(str(al.get("disaster_type")))} Warning — {html.escape(str(al.get("zone")))}</span>'
+                    f'{status_pill(mapped_lvl, cls_lvl)}'
+                    f'</div>'
+                    f'<div class="saarthi-alert-meta">'
+                    f'<span><b>Location:</b> {html.escape(str(al.get("zone")))} ({al.get("radius_km")} km)</span>'
+                    f'<span><b>Detected:</b> {html.escape(str(al.get("created_at", ""))[11:16] or "recorded")}</span>'
+                    f'<span><b>ETA:</b> {al.get("eta_hours")}h</span>'
+                    f'<span><b>Status:</b> {html.escape(sms_st)}</span>'
+                    f'<span><b>Team:</b> SEOC Broadcast Queue</span>'
+                    f'</div></div>'
+                )
+            # Also surface top severity zones
+            for z in sev[:4]:
+                lvl = z["level"]
+                cls_lvl = lvl.lower()
+                team_assigned = next(
+                    (i.get("claimed_by") for i in incidents if i["zone"] == z["name"] and i.get("claimed_by")),
+                    "District Response Unit" if z["open_requests"] else "Standby Monitoring",
+                )
+                alert_cards.append(
+                    f'<div class="saarthi-alert-card {cls_lvl}">'
+                    f'<div class="saarthi-alert-top">'
+                    f'<span class="saarthi-alert-title">{html.escape(z["disaster_type"])} Exposure — {html.escape(z["name"])}</span>'
+                    f'{status_pill(f"{lvl} · {z['score']}", cls_lvl)}'
+                    f'</div>'
+                    f'<div class="saarthi-alert-meta">'
+                    f'<span><b>Location:</b> {html.escape(z["name"])}</span>'
+                    f'<span><b>Prob:</b> {float(z["probability"]):.0%}</span>'
+                    f'<span><b>Open SOS:</b> {z["open_requests"]}</span>'
+                    f'<span><b>Assigned:</b> {html.escape(str(team_assigned))}</span>'
+                    f'</div></div>'
+                )
+            st.markdown("".join(alert_cards[:6]), unsafe_allow_html=True)
 
         with st.container(border=True):
-            t1, t2, t3, t4, t5 = st.tabs([
-                "Operational Overview",
-                "Plan Challenger & What-If",
-                "Ripple Cascade Network",
-                "Local Broadcasts (MR / HI)",
-                "SQLite Audit (All Tables)",
-            ])
+            st.subheader("Command activity & incident timeline")
+            st.caption("Latest operational decisions, route changes, and plan updates.")
+            events = data.read("SELECT * FROM events ORDER BY id DESC LIMIT 6")
+            if not events:
+                st.caption("No stored system events.")
+            for e in events:
+                code_tag = EVENT_ICON.get(e["type"], "EVT")
+                kind = str(e["type"] or "not available").replace("_", " ").lower()
+                stamp = e["timestamp"] or ""
+                when = stamp[11:16] if len(stamp) >= 16 else "not available"
+                message = html.escape(str(e["message"] if e["message"] is not None else "not available"))
+                st.markdown(
+                    '<div class="saarthi-event">'
+                    f'<div class="saarthi-event-meta"><span class="saarthi-code-badge">{html.escape(code_tag)}</span>'
+                    f'<span>{when} · {html.escape(kind)}</span></div>'
+                    f'<div class="saarthi-event-text">{message}</div>'
+                    "</div>",
+                    unsafe_allow_html=True)
 
-            # TAB 1: Operational Overview (Hospital capacity bars + Active dispatch corridors + 24h Risk + Events)
-            with t1:
-                g_left, g_right = st.columns([1, 1.25])
-                with g_left:
-                    st.markdown(
-                        '<div class="bh"><span class="eb">Resource &amp; hospital capacity</span>'
-                        '<span class="eb live">Live telemetry</span></div><div style="height:10px"></div>',
-                        unsafe_allow_html=True,
-                    )
-                    hospitals = data.read("SELECT * FROM hospitals ORDER BY id")
-                    bars_html = []
-                    for h in hospitals:
-                        tot = int(h["total_beds"] or 1)
-                        free = int(h["available_beds"] or 0)
-                        occ_pct = int(round(((tot - free) / tot) * 100)) if tot > 0 else 0
-                        hot_cls = "hot" if occ_pct >= 85 else ""
-                        bars_html.append(
-                            f'<div class="bh"><span>{html.escape(h["name"])}</span>'
-                            f'<span>{free} beds free ({occ_pct}% occupied)</span></div>'
-                            f'<div class="bar"><i class="{hot_cls}" style="width:{min(100, max(0, occ_pct))}%"></i></div>'
-                        )
-                    st.markdown("".join(bars_html), unsafe_allow_html=True)
-                with g_right:
-                    supply_moves = plan.get("supply") or []
-                    st.markdown(
-                        f'<div class="bh"><span class="eb">Active dispatch corridors (Plan v{plan.get("version", 1)})</span>'
-                        f'<span class="eb live">{len(plan.get("shortfalls") or [])} shortfalls</span></div><div style="height:10px"></div>',
-                        unsafe_allow_html=True,
-                    )
-                    if supply_moves:
-                        head_cells = "".join(f"<th>{c}</th>" for c in ("zone", "item", "qty", "from_hub", "eta"))
-                        body_rows = []
-                        for m in supply_moves[:6]:
-                            eta_s = engine.fmt_minutes(m.get("minutes"))
-                            body_rows.append(
-                                f"<tr><td>{html.escape(str(m.get('zone')))}</td>"
-                                f"<td>{html.escape(str(m.get('item')))}</td>"
-                                f"<td>{html.escape(str(m.get('qty')))}</td>"
-                                f"<td>{html.escape(str(m.get('from_hub')))}</td>"
-                                f"<td>{html.escape(str(eta_s))}</td></tr>"
-                            )
-                        st.markdown(
-                            f'<div class="saarthi-table-container"><table class="saarthi-scan">'
-                            f'<thead><tr>{head_cells}</tr></thead><tbody>{"".join(body_rows)}</tbody></table></div>',
-                            unsafe_allow_html=True,
-                        )
-                        ab1, ab2 = st.columns(2)
-                        if ab1.button("Approve all supply moves", key="ov_approve_all", type="primary"):
-                            act(data.approve_all, ok="Every supply move approved")
-                        if ab2.button("Re-optimise plan now", key="ov_reopt"):
-                            act(data.event, "MANUAL", "Operator asked for a fresh plan", ok="Plan recalculated")
-                    else:
-                        ui_success("All high-risk zone supply needs are covered.")
+    # 3. BOTTOM SECTION — Resource Overview + Cascading Impact & 24h Risk Telemetry
+    res_col, cascade_col = st.columns([1.15, 1.45])
+    with res_col:
+        with st.container(border=True):
+            st.subheader("Resource overview & hospital readiness")
+            st.caption("Stock across regional depots, medical bed availability, and deployed units.")
+            total_beds = sum(int(h["total_beds"] or 0) for h in hospitals)
+            free_beds = sum(int(h["available_beds"] or 0) for h in hospitals)
+            total_icu = sum(int(h["icu_total"] or 0) for h in hospitals)
+            free_icu = sum(int(h["icu_available"] or 0) for h in hospitals)
+            med_stock = inv_by_item.get("Medical kits", 0) + inv_by_item.get("Oxygen cylinders", 0)
+            food_water = inv_by_item.get("Food kits", 0) + inv_by_item.get("Water packs", 0)
+            shelter_stock = inv_by_item.get("Tarpaulins", 0)
+            planned_supply = sum(int(r.get("qty") or 0) for r in (plan.get("supply") or []))
+            shortfall_supply = sum(int(s.get("missing") or 0) for s in (plan.get("shortfalls") or []))
+            cov_denom = planned_supply + shortfall_supply
+            cov_pct = (planned_supply / cov_denom * 100.0) if cov_denom > 0 else 100.0
 
-                st.divider()
-                ch_col, ev_col = st.columns([1.35, 1])
-                with ch_col:
-                    st.markdown('<div class="eb">24-Hour Risk Telemetry</div>', unsafe_allow_html=True)
-                    st.subheader("Risk probability over the last 24 hours")
-                    logs = df(data.read("SELECT timestamp, zone, probability FROM risk_logs ORDER BY id"))
-                    line_colours = ["#142B3B", "#D9483B", "#E1E6E9", "#5C7380", "#238C78", "#E58A35", "#238C78"]
-                    if logs.empty:
-                        st.caption("Recorded risk probability is not available.")
-                    else:
-                        fig = px.line(logs, x="timestamp", y="probability", color="zone", markers=True,
-                                      color_discrete_sequence=line_colours)
-                        fig.update_layout(yaxis_tickformat=".0%", yaxis_range=[0, 1], height=220)
-                        style_chart(fig)
-                        st.plotly_chart(fig, use_container_width=True)
-                with ev_col:
-                    st.markdown('<div class="eb">Live System Events</div>', unsafe_allow_html=True)
-                    st.subheader("System events")
-                    events = data.read("SELECT * FROM events ORDER BY id DESC LIMIT 6")
-                    for e in events:
-                        icon = EVENT_ICON.get(e["type"], "•")
-                        kind = str(e["type"] or "not available").replace("_", " ").lower()
-                        stamp = e["timestamp"] or ""
-                        when = stamp[11:16] if len(stamp) >= 16 else "not available"
-                        message = html.escape(str(e["message"] if e["message"] is not None else "not available"))
-                        st.markdown(
-                            '<div class="saarthi-event">'
-                            f'<div class="saarthi-event-meta">{icon} {when} · {html.escape(kind)}</div>'
-                            f'<div class="saarthi-event-text">{message}</div>'
-                            "</div>",
-                            unsafe_allow_html=True)
+            res_bars = [
+                progress_bar_html(
+                    "Medical & Trauma Beds Available",
+                    f"{free_beds} / {total_beds} free beds (ICU {free_icu}/{total_icu})",
+                    (free_beds / total_beds * 100.0) if total_beds else 0,
+                    tone="teal" if free_beds > 100 else ("orange" if free_beds > 0 else "red"),
+                ),
+                progress_bar_html(
+                    "Medical Supplies (Kits & Oxygen Cylinders)",
+                    f"{med_stock:,} units in depot stock",
+                    min(100, med_stock / 80.0),
+                    tone="teal",
+                ),
+                progress_bar_html(
+                    "Food & Water Relief Packs",
+                    f"{food_water:,} units in depot stock",
+                    min(100, food_water / 110.0),
+                    tone="teal",
+                ),
+                progress_bar_html(
+                    "Shelter Capacity (Tarpaulins & Relief Cover)",
+                    f"{shelter_stock:,} units in depot stock",
+                    min(100, shelter_stock / 40.0),
+                    tone="low",
+                ),
+                progress_bar_html(
+                    "Priority Supply Allocation Coverage",
+                    f"{planned_supply:,} planned · {shortfall_supply:,} unmet shortfall",
+                    cov_pct,
+                    tone="red" if shortfall_supply > 0 else "teal",
+                ),
+            ]
+            st.markdown("".join(res_bars), unsafe_allow_html=True)
+            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+            st.markdown("**Hospital Capacity Utilization by Facility**")
+            hosp_bars = []
+            for h in hospitals:
+                tot = int(h["total_beds"] or 1)
+                free = int(h["available_beds"] or 0)
+                occ_pct = ((tot - free) / tot) * 100.0 if tot > 0 else 0.0
+                tone = "red" if free == 0 else ("orange" if occ_pct >= 80 else "teal")
+                hosp_bars.append(progress_bar_html(h["name"], f"{free}/{tot} free ({int(round(occ_pct))}% used)", occ_pct, tone=tone))
+            st.markdown("".join(hosp_bars), unsafe_allow_html=True)
 
-            # TAB 2: Plan Challenger & What-If (matches Tab 1 in Saarthi – Emergency Command Center.html)
-            with t2:
-                review = plan_challenger_agent.review()
-                findings = review.get("findings") or []
-                c_bad, c_good = st.columns(2)
-                with c_bad:
-                    st.markdown('<div class="eb" style="margin-bottom:10px">Plan conflicts &amp; warnings flagged by Challenger</div>', unsafe_allow_html=True)
-                    if not findings:
-                        st.markdown(
-                            '<div class="cf good"><b>0 CONSTRAINT VIOLATIONS</b>'
-                            '<p>All hospital bed limits, hub stock limits, and road statuses are respected.</p>'
-                            f'<small>Verified on Plan v{review.get("plan_version")}</small></div>',
-                            unsafe_allow_html=True,
-                        )
-                    for f_row in findings[:6]:
-                        st.markdown(
-                            f'<div class="cf bad"><b>{html.escape(str(f_row.get("area", "")).upper())} · {html.escape(str(f_row.get("status", "")).upper())} ({html.escape(str(f_row.get("risk", "")).upper())})</b>'
-                            f'<p>{html.escape(str(f_row.get("why", "")))}</p>'
-                            f'<small>{html.escape(str(f_row.get("recommendation", "")))}</small></div>',
-                            unsafe_allow_html=True,
-                        )
-                with c_good:
-                    st.markdown('<div class="eb" style="margin-bottom:10px">Coordinator &amp; OR-Tools verified allocations</div>', unsafe_allow_html=True)
-                    for p_row in (plan.get("patients") or [])[:4]:
-                        st.markdown(
-                            f'<div class="cf good"><b>SOS #{p_row.get("incident_id")} · {p_row.get("patients")} PATIENTS ({engine.fmt_minutes(p_row.get("minutes"))} ETA)</b>'
-                            f'<p>Destination: {html.escape(str(p_row.get("hospital")))} ({html.escape(str(p_row.get("zone")))})</p>'
-                            f'<small>Corridor: {", ".join(p_row.get("route") or ["local"])}</small></div>',
-                            unsafe_allow_html=True,
-                        )
-                    for s_row in (plan.get("supply") or [])[:4]:
-                        st.markdown(
-                            f'<div class="cf good"><b>{html.escape(str(s_row.get("zone")).upper())} · {s_row.get("qty")} {html.escape(str(s_row.get("item")))} ({engine.fmt_minutes(s_row.get("minutes"))} ETA)</b>'
-                            f'<p>Source Hub: {html.escape(str(s_row.get("from_hub")))}</p>'
-                            f'<small>Corridor: {", ".join(s_row.get("route") or ["local"])}</small></div>',
-                            unsafe_allow_html=True,
-                        )
-
-            # TAB 3: Ripple Cascade Network (matches Tab 2 in Saarthi – Emergency Command Center.html)
-            with t3:
-                z_names = [z["name"] for z in data.read("SELECT name FROM zones ORDER BY name")]
-                ov_origin = st.selectbox("Select origin zone for Ripple cascade diagram", z_names,
-                                         index=z_names.index("Ratnagiri") if "Ratnagiri" in z_names else 0,
-                                         key="ov_ripple_origin")
-                _render_ripple_svg(ov_origin)
-
-            # TAB 4: Local Broadcasts (MR / HI / EN) (matches Tab 3 in Saarthi – Emergency Command Center.html)
-            with t4:
-                st.markdown('<div class="eb" style="margin-bottom:8px">Multilingual Emergency Dispatch &amp; Early Warning Broadcasts (Marathi / Hindi / English)</div>', unsafe_allow_html=True)
-                alerts_list = data.read("SELECT * FROM alerts ORDER BY id DESC LIMIT 4")
-                for al in alerts_list:
-                    z_n = al.get("zone") or "Zone"
-                    dt_n = al.get("disaster_type") or "Hazard"
-                    sv_n = al.get("severity") or "Red"
-                    eta_n = al.get("eta_hours") or 24
-                    rad_n = al.get("radius_km") or 30
-                    st_n = al.get("sms_status") or "QUEUED"
-                    st.markdown(
-                        f'<div class="bc"><div class="bt2"><span>ALERT #{al["id"]} · {html.escape(str(z_n).upper())} ({html.escape(str(dt_n).upper())} · {html.escape(str(sv_n).upper())})</span>'
-                        f'<span class="live">STATUS: {html.escape(str(st_n))} · MARATHI / HINDI / ENGLISH</span></div>'
-                        f'<p><b>Marathi:</b> [SAARTHI सतर्कता] {html.escape(str(z_n))} परिमंडळ ({rad_n} किमी): {html.escape(str(dt_n))} ({html.escape(str(sv_n))}) इशारा नोंदवला आहे. अंदाजे वेळ: {eta_n} तास. सुरक्षित स्थळी राहा.</p>'
-                        f'<p><b>Hindi:</b> [SAARTHI अलर्ट] {html.escape(str(z_n))} क्षेत्र ({rad_n} किमी): {html.escape(str(dt_n))} ({html.escape(str(sv_n))}) चेतावनी दर्ज की गई है। अनुमानित समय: {eta_n} घंटे। सुरक्षित स्थान पर रहें।</p>'
-                        f'<p class="en"><b>English:</b> [SAARTHI EARLY WARNING] {html.escape(str(z_n))} ({rad_n} km radius) - {html.escape(str(sv_n))} {html.escape(str(dt_n))} alert recorded (ETA {eta_n}h). Status: {html.escape(str(st_n))}.</p></div>',
-                        unsafe_allow_html=True,
-                    )
-                for p_row in (plan.get("patients") or [])[:3]:
-                    z_n = p_row.get("zone") or "Zone"
-                    hosp_n = p_row.get("hospital") or "Hospital"
-                    pts_n = p_row.get("patients") or 0
-                    inc_id = p_row.get("incident_id") or 0
-                    eta_m = engine.fmt_minutes(p_row.get("minutes"))
-                    via_r = ", ".join(p_row.get("route") or ["local"])
-                    st.markdown(
-                        f'<div class="bc"><div class="bt2"><span>SOS #{inc_id} · {html.escape(str(z_n).upper())} MEDICAL TRIAGE</span>'
-                        f'<span class="live">PROPOSED PLAN · MARATHI / HINDI</span></div>'
-                        f'<p><b>Marathi:</b> [SAARTHI सतर्कता] {html.escape(str(z_n))}: वैद्यकीय विनंती (SOS-{inc_id}) — {pts_n} रुग्णांसाठी ‘{html.escape(str(hosp_n))}’ येथे ‘{html.escape(via_r)}’ मार्गे ({html.escape(eta_m)}) नियोजन.</p>'
-                        f'<p><b>Hindi:</b> [SAARTHI अलर्ट] {html.escape(str(z_n))}: चिकित्सा अनुरोध (SOS-{inc_id}) — {pts_n} मरीजों के लिए ‘{html.escape(str(hosp_n))}’ में ‘{html.escape(via_r)}’ मार्ग से ({html.escape(eta_m)}) योजना।</p>'
-                        f'<p class="en"><b>English:</b> [SAARTHI MEDICAL PLAN] {html.escape(str(z_n))} - {pts_n} patients from SOS #{inc_id} routed via {html.escape(via_r)} (ETA {html.escape(eta_m)}) → {html.escape(str(hosp_n))}.</p></div>',
-                        unsafe_allow_html=True,
-                    )
-
-            # TAB 5: SQLite Audit (All Tables) (matches Tab 4 in Saarthi – Emergency Command Center.html)
-            with t5:
-                st.markdown('<div class="eb">Inspect SQLite table</div>', unsafe_allow_html=True)
-                tables = [
-                    "zones", "roads", "hospitals", "hubs", "inventory",
-                    "incidents", "alerts", "risk_logs", "supply_movement",
-                    "plans", "plan_runs", "events", "citizen_reports",
-                ]
-                tb_col1, tb_col2 = st.columns([1, 2])
-                chosen_tb = tb_col1.selectbox("SQLite Table", tables, key="ov_sqlite_tb")
-                tb_col2.caption(f"Live query: SELECT * FROM {chosen_tb} (SQLite session state store)")
-                tb_rows = data.read(f"SELECT * FROM {chosen_tb} LIMIT 100")
-                if tb_rows:
-                    render_df_table(df(tb_rows), hide_index=True)
-                else:
-                    st.caption(f"Table `{chosen_tb}` has no rows yet.")
+    with cascade_col:
+        with st.container(border=True):
+            st.subheader("Cascading impact visualization (Saarthi Ripple)")
+            st.caption("How primary hazard exposure propagates across transport corridors, hospitals, and supply chains.")
+            top_zone = sev[0]["name"] if sev else "Ratnagiri"
+            ripple_snap = ripple_agent.analyse(top_zone)
+            sec_names = ", ".join(z["zone"] for z in ripple_snap["secondary"]) or "None"
+            ext_names = ", ".join(z["zone"] for z in ripple_snap["extended"]) or "None"
+            prim_hosp = ripple_snap["primary"]["hospital"]["text"]
+            prim_roads = ", ".join(f"{r['id']} ({r['status']})" for r in ripple_snap["primary"]["roads"][:3])
+            reachable_hubs = sum(1 for r in ripple_snap["reach"] if r["minutes"] is not None)
+            st.markdown(
+                '<div class="saarthi-cascade-chain">'
+                f'<div class="saarthi-cascade-step" style="border-top-color:{RED};">'
+                f'<b>1. Primary Hazard Origin</b>'
+                f'<div>{html.escape(top_zone)} ({html.escape(sev[0]["disaster_type"])} · Score {sev[0]["score"]})</div>'
+                f'</div>'
+                f'<div class="saarthi-cascade-step" style="border-top-color:{ORANGE};">'
+                f'<b>2. Transport Corridors</b>'
+                f'<div>{html.escape(prim_roads)} → 1-Hop: {html.escape(sec_names)}</div>'
+                f'</div>'
+                f'<div class="saarthi-cascade-step" style="border-top-color:{YELLOW};">'
+                f'<b>3. Medical Pressure</b>'
+                f'<div>{html.escape(prim_hosp)} · 2-Hop: {html.escape(ext_names)}</div>'
+                f'</div>'
+                f'<div class="saarthi-cascade-step" style="border-top-color:{TEAL};">'
+                f'<b>4. Supply Chain Reach</b>'
+                f'<div>{reachable_hubs} / {len(ripple_snap["reach"])} depots connected on open routes</div>'
+                f'</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+        with st.container(border=True):
+            st.subheader("Risk probability over the last 24 hours")
+            logs = df(data.read("SELECT timestamp, zone, probability FROM risk_logs ORDER BY id"))  # stored readings
+            line_colours = [RED, ORANGE, YELLOW, BLUE, TEAL, STEEL, MUTED_GREY]
+            if logs.empty:
+                st.caption("Recorded risk probability is not available.")
+            else:
+                fig = px.line(logs, x="timestamp", y="probability", color="zone", markers=True,
+                              color_discrete_sequence=line_colours)  # one line per zone
+                fig.update_layout(yaxis_tickformat=".0%", yaxis_range=[0, 1], height=245)
+                style_chart(fig)
+                st.plotly_chart(fig, use_container_width=True)
 
 
 def page_alerts():  # PAGE 2: early warnings
@@ -1315,6 +1211,37 @@ def page_allocation():  # PAGE 4: the optimiser's decisions with reasons
         ("Changed this version", plan_cell(plan.get("changed")), WARNING if plan.get("changed") else TEXT),
     ))
     with st.container(border=True):
+        st.subheader("Resource allocation & medical placement coverage")
+        total_supply_qty = sum(int(r.get("qty") or 0) for r in supply)
+        total_shortfall_qty = sum(int(s.get("missing") or 0) for s in shortfalls)
+        denom_supply = total_supply_qty + total_shortfall_qty
+        supply_cov_pct = (total_supply_qty / denom_supply * 100.0) if denom_supply > 0 else 100.0
+        placed_pts = sum(int(p.get("patients") or 0) for p in patients)
+        unplaced_pts = sum(int(u.get("patients") or 0) for u in unplaced)
+        denom_pts = placed_pts + unplaced_pts
+        pts_cov_pct = (placed_pts / denom_pts * 100.0) if denom_pts > 0 else 100.0
+        cov_c1, cov_c2 = st.columns(2)
+        with cov_c1:
+            st.markdown(
+                progress_bar_html(
+                    "Supply allocation coverage",
+                    f"{total_supply_qty} planned / {total_shortfall_qty} short",
+                    supply_cov_pct,
+                    tone="red" if total_shortfall_qty > 0 else "teal",
+                ),
+                unsafe_allow_html=True,
+            )
+        with cov_c2:
+            st.markdown(
+                progress_bar_html(
+                    "Medical bed placement coverage",
+                    f"{placed_pts} assigned / {unplaced_pts} unplaced",
+                    pts_cov_pct,
+                    tone="red" if unplaced_pts > 0 else "teal",
+                ),
+                unsafe_allow_html=True,
+            )
+    with st.container(border=True):
         head, buttons = st.columns([2.4, 1])  # summary | actions
         head.markdown(f"**Plan v{plan_cell(plan.get('version'))}** · {clock} · "
                       f"**{plan_cell(plan.get('changed'))} allocations changed** after *{trigger_label}*  \n"
@@ -1332,7 +1259,7 @@ def page_allocation():  # PAGE 4: the optimiser's decisions with reasons
             ui_success("No moves needed right now. Every high-risk zone is covered.")
         for n, r in enumerate(supply):  # one card per move
             box = st.container(border=True)  # bordered card
-            a, b = box.columns([3.4, 1.2])  # text | button
+            a, b = box.columns([3.5, 1.2])  # text | button
             level = plan_cell(r.get("level"))
             minutes = "not available" if r.get("minutes") is None else engine.fmt_minutes(r["minutes"])
             a.markdown(
@@ -1408,7 +1335,7 @@ def page_network():  # PAGE 5: roads, hospitals, stock (every change is an event
         f"""
         <style>
 
-        .saarthi-road-open {{ color: #75818A; font-weight: 600; }}
+        .saarthi-road-open {{ color: #6b7280; font-weight: 600; }}
         .saarthi-road-slow {{ color: {LEVEL_HEX["High"]}; font-weight: 600; }}
         .saarthi-road-blocked {{ color: {LEVEL_HEX["Critical"]}; font-weight: 600; }}
         </style>
@@ -1481,8 +1408,8 @@ def page_network():  # PAGE 5: roads, hospitals, stock (every change is an event
             st.caption("Recorded free beds and ICU. Saving replaces those recorded numbers.")
             if hospitals:
                 hs = df(hospitals)  # hospitals
-                fig = go.Figure([go.Bar(name="Occupied beds", x=hs["name"], y=hs["total_beds"] - hs["available_beds"], marker_color="#C5CED3"),
-                                 go.Bar(name="Free beds", x=hs["name"], y=hs["available_beds"], marker_color="#238C78")])  # stacked bars
+                fig = go.Figure([go.Bar(name="Occupied beds", x=hs["name"], y=hs["total_beds"] - hs["available_beds"], marker_color="#CBD5E1"),
+                                 go.Bar(name="Free beds", x=hs["name"], y=hs["available_beds"], marker_color=TEAL)])  # stacked bars
                 style_chart(fig)
                 fig.update_layout(barmode="stack", height=280, margin=dict(t=8, b=72, l=8, r=8))
                 fig.update_xaxes(tickangle=-30, automargin=True)
@@ -1766,13 +1693,7 @@ def page_scenarios():  # PAGE 8: the scenario tests from our notes
             st.subheader(f"Scenario {res['scenario']}: {res['title']}")  # heading
             st.markdown(f"Plan v{res['version']}: **{res['changed']} allocations changed.** See the Allocation page for details.")
             for c in res["checks"]:  # one line per check
-                cls = "good" if c["ok"] else "bad"
-                mark = "✓ PASSED" if c["ok"] else "✗ FAILED"
-                st.markdown(
-                    f'<div class="cf {cls}"><b>{mark} · {html.escape(str(c["check"]))}</b>'
-                    f'<p>{html.escape(str(c["detail"]))}</p></div>',
-                    unsafe_allow_html=True,
-                )
+                (ui_success if c["ok"] else ui_error)(f"{'PASS' if c['ok'] else 'FAIL'} — {c['check']}: {c['detail']}")  # green or red
 
 
 # ---------------------------------------------------------------------
@@ -1942,7 +1863,7 @@ def page_intake():  # PAGE 9: Intake and Triage agent
                         ui_info(f"Rejected by {row['reviewed_by'] or 'an operator'}. Nothing was dispatched.")
         mapped = [r for r in reports if r["lat"] is not None and r["lon"] is not None]
         if mapped:
-            colours = {"CRITICAL": [185, 28, 28], "HIGH": [217, 88, 13], "MEDIUM": [201, 154, 6], "LOW": [47, 125, 79]}
+            colours = {"CRITICAL": [231, 71, 71], "HIGH": [230, 162, 60], "MEDIUM": [217, 165, 32], "LOW": [43, 108, 176]}
             points = df(mapped)
             points["color"] = points["priority"].map(colours)
             points["label"] = points["priority"] + " " + points["classification"].fillna("") + " #" + points["id"].astype(str)
@@ -2016,9 +1937,9 @@ def page_ripple():  # PAGE 10: read-only cascade analysis
             display: inline-block; font-size: 0.72rem; letter-spacing: 0.04em; line-height: 1.3;
             border: 1px solid var(--saarthi-line); padding: 2px 6px;
         }
-        .saarthi-role-primary { color: #D9483B; border-color: #D9483B; }
-        .saarthi-role-secondary { color: #E58A35; border-color: #E58A35; }
-        .saarthi-role-extended { color: #E58A35; border-color: #E58A35; }
+        .saarthi-role-primary { color: #E74747; border-color: #E74747; }
+        .saarthi-role-secondary { color: #E6A23C; border-color: #E6A23C; }
+        .saarthi-role-extended { color: #D9A520; border-color: #D9A520; }
         </style>
         """,
         unsafe_allow_html=True)
@@ -2215,7 +2136,7 @@ def _ripple_map(result):
     roles = {result["primary"]["zone"]: "primary"}
     roles.update({z["zone"]: "secondary" for z in result["secondary"]})
     roles.update({z["zone"]: "extended" for z in result["extended"]})
-    colours = {"primary": [185, 28, 28], "secondary": [217, 88, 13], "extended": [201, 154, 6], "other": [156, 163, 175]}
+    colours = {"primary": [231, 71, 71], "secondary": [230, 162, 60], "extended": [217, 165, 32], "other": [38, 155, 117]}
     points = []
     for zone in data.read("SELECT name, lat, lon FROM zones"):
         role = roles.get(zone["name"], "other")
@@ -2265,7 +2186,7 @@ def page_whatif():  # PAGE 11: hypothetical scenarios, never written to the data
             border: 1px solid var(--saarthi-line); padding: 2px 6px; margin-right: 6px;
         }
         .saarthi-source-recorded { color: var(--saarthi-muted); }
-        .saarthi-source-simulated { color: #E58A35; border-color: #E8C49A; background: #FBF3EA; }
+        .saarthi-source-simulated { color: #E6A23C; border-color: #E6A23C; background: #FFFBF4; }
         </style>
         """,
         unsafe_allow_html=True)
@@ -2507,7 +2428,7 @@ def _whatif_add(modifications, modification):
 
 def _muted_road(rgb):
     """Dim a status colour so an unchanged simulated road sits behind a change."""
-    return [int(channel * 0.28 + 145) for channel in rgb]
+    return [int(channel * 0.28 + 150) for channel in rgb]
 
 
 def _whatif_maps(result):
@@ -3108,22 +3029,133 @@ def _evidence_text(evidence):
     return ", ".join(f"{key} {value}" for key, value in evidence.items())
 
 
-def page_plan_challenger():  # read-only review of the stored plan
+def page_plan_challenger():  # read-only review of the stored plan + visual scenario comparison
+    page_fit_styles()
     with st.container(border=True):
-        page_header("Plan Challenger", "Read-only review of the stored plan.")
+        page_header("Plan Challenger & Response Comparison",
+                    "Read-only audit of the stored response plan and side-by-side comparison against alternative/counterfactual conditions.")
         safety_notice(plan_challenger_agent.DISCLAIMER)
         st.caption("These findings are evaluated against the stored recorded plan. "
                    "This page is not reviewing a proposed plan. "
                    "The review was not approved and it was not executed. "
                    "A missing count is not zero.")
     result = plan_challenger_agent.review()  # reads the current plan; nothing is stored
+    plan = data.get_plan()
     st.caption(f"RECORDED plan version {result['plan_version']}. Reviewed at {result['reviewed_at']}.")
     counts = result["counts"]
     metric_tiles((
-        ("Confirmed", counts["confirmed"], "#D9483B"),
-        ("Potential", counts["potential"], "#E58A35"),
-        ("Missing data", counts["missing"], "#75818A"),
+        ("Confirmed Violations", counts["confirmed"], RED if counts["confirmed"] else TEAL),
+        ("Potential Improvements", counts["potential"], ORANGE if counts["potential"] else TEAL),
+        ("Missing Data Flags", counts["missing"], MUTED_GREY),
+        ("Plan Version Reviewed", f"v{result['plan_version']}", STEEL),
     ))
+
+    # Visual Plan Comparison (Current Stored Plan vs Counterfactual / Alternative Plan from What-If)
+    supply_rows = plan.get("supply") or []
+    patient_rows = plan.get("patients") or []
+    shortfall_rows = plan.get("shortfalls") or []
+    unplaced_rows = plan.get("unplaced") or []
+    all_legs = [r.get("minutes") for r in supply_rows + patient_rows if r.get("minutes") is not None]
+    cur_avg_mins = round(sum(all_legs) / len(all_legs), 1) if all_legs else 0.0
+    cur_resources = len(supply_rows) + len(patient_rows)
+    cur_hosps = len({p.get("hospital") for p in patient_rows if p.get("hospital")})
+    cur_planned_qty = sum(int(r.get("qty") or 0) for r in supply_rows)
+    cur_short_qty = sum(int(s.get("missing") or 0) for s in shortfall_rows)
+    cur_cov = round((cur_planned_qty / (cur_planned_qty + cur_short_qty)) * 100, 1) if (cur_planned_qty + cur_short_qty) > 0 else 100.0
+
+    # Compare against active What-If simulation if one exists, or an in-memory nearest-hub greedy baseline
+    sim = st.session_state.get("whatif_simulation")
+    if isinstance(sim, dict):
+        alt_label = "What-If Counterfactual Plan (Simulated in memory)"
+        alt_supply = (sim.get("supply") or {}).get("simulated") or []
+        alt_short = (sim.get("supply") or {}).get("simulated_shortfalls") or []
+        alt_patients = (sim.get("patients") or {}).get("simulated_assignments") or []
+        alt_legs = [r.get("minutes") for r in alt_supply + alt_patients if r.get("minutes") is not None]
+        alt_avg_mins = round(sum(alt_legs) / len(alt_legs), 1) if alt_legs else 0.0
+        alt_resources = len(alt_supply) + len(alt_patients)
+        alt_hosps = len({p.get("hospital") for p in alt_patients if p.get("hospital")})
+        alt_planned_qty = sum(int(r.get("qty") or 0) for r in alt_supply)
+        alt_short_qty = sum(int(s.get("missing") or 0) for s in alt_short)
+        alt_cov = round((alt_planned_qty / (alt_planned_qty + alt_short_qty)) * 100, 1) if (alt_planned_qty + alt_short_qty) > 0 else 100.0
+        alt_changes = (sim.get("supply") or {}).get("changed", 0)
+    else:
+        alt_label = "Unconstrained Baseline (Pre-reoptimisation reference)"
+        alt_avg_mins = cur_avg_mins
+        alt_resources = cur_resources
+        alt_hosps = cur_hosps
+        alt_cov = cur_cov
+        alt_changes = plan.get("changed", 0)
+
+    with st.container(border=True):
+        st.subheader("Plan comparison & operational trade-offs")
+        st.caption(f"Comparing Stored Plan v{plan.get('version', 1)} against {alt_label}. All values are derived from recorded database rows.")
+        comp_rows = [
+            {
+                "Metric": "Estimated average response travel time",
+                "Current Stored Plan": f"{cur_avg_mins} min",
+                "Comparison / Counterfactual Plan": f"{alt_avg_mins} min",
+            },
+            {
+                "Metric": "Allocation moves & medical assignments",
+                "Current Stored Plan": f"{cur_resources} moves",
+                "Comparison / Counterfactual Plan": f"{alt_resources} moves",
+            },
+            {
+                "Metric": "Hospitals receiving patients",
+                "Current Stored Plan": f"{cur_hosps} facilities",
+                "Comparison / Counterfactual Plan": f"{alt_hosps} facilities",
+            },
+            {
+                "Metric": "Priority supply coverage (%)",
+                "Current Stored Plan": f"{cur_cov}%",
+                "Comparison / Counterfactual Plan": f"{alt_cov}%",
+            },
+            {
+                "Metric": "Confirmed constraint violations",
+                "Current Stored Plan": f"{counts['confirmed']} violations",
+                "Comparison / Counterfactual Plan": f"{alt_changes} route deltas",
+            },
+        ]
+        render_df_table(comp_rows, hide_index=True)
+
+        # Five structured analysis questions from Section 3
+        q1, q2 = st.columns(2)
+        with q1:
+            changed_moves = [r for r in supply_rows + patient_rows if r.get("changed")]
+            st.markdown(
+                f'<div class="saarthi-alert-card low">'
+                f'<div class="saarthi-alert-top"><span class="saarthi-alert-title">1. What Changed in Plan v{plan.get("version", 1)}?</span>'
+                f'{status_pill(f"{plan.get('changed', 0)} Changed", "low")}</div>'
+                f'<div class="saarthi-alert-meta"><span>Trigger: {html.escape(str(plan.get("trigger") or "Initial baseline"))}</span>'
+                f'<span>Modified rows in this version: {len(changed_moves)}</span></div></div>',
+                unsafe_allow_html=True,
+            )
+            affected_zones = sorted({s.get("zone") for s in shortfall_rows if s.get("zone")} | {u.get("zone") for u in unplaced_rows if u.get("zone")})
+            st.markdown(
+                f'<div class="saarthi-alert-card {"critical" if affected_zones else "resolved"}">'
+                f'<div class="saarthi-alert-top"><span class="saarthi-alert-title">2. Which Areas Have Unmet Needs?</span>'
+                f'{status_pill(f"{len(affected_zones)} Zones" if affected_zones else "All Covered", "critical" if affected_zones else "resolved")}</div>'
+                f'<div class="saarthi-alert-meta"><span>{html.escape(", ".join(affected_zones) if affected_zones else "Every priority zone and medical request is currently covered.")}</span></div></div>',
+                unsafe_allow_html=True,
+            )
+        with q2:
+            reassignments = [f["why"] for f in result["findings"] if f["status"] == "confirmed"]
+            st.markdown(
+                f'<div class="saarthi-alert-card {"high" if reassignments else "resolved"}">'
+                f'<div class="saarthi-alert-top"><span class="saarthi-alert-title">3. Which Resources Need Reassignment?</span>'
+                f'{status_pill(f"{len(reassignments)} Flagged" if reassignments else "0 Conflicts", "high" if reassignments else "resolved")}</div>'
+                f'<div class="saarthi-alert-meta"><span>{html.escape(reassignments[0] if reassignments else "No hub stock overruns, blocked routes, or hospital bed overflows detected.")}</span></div></div>',
+                unsafe_allow_html=True,
+            )
+            verdict_ok = counts["confirmed"] == 0
+            st.markdown(
+                f'<div class="saarthi-alert-card {"resolved" if verdict_ok else "critical"}">'
+                f'<div class="saarthi-alert-top"><span class="saarthi-alert-title">4. Feasibility Verdict &amp; Downstream Consequences</span>'
+                f'{status_pill("FEASIBLE" if verdict_ok else "NEEDS REVISION", "resolved" if verdict_ok else "critical")}</div>'
+                f'<div class="saarthi-alert-meta"><span>{"Stored plan satisfies all recorded road, bed, and inventory limits." if verdict_ok else "Confirmed constraint violations must be resolved before approving dispatch."}</span></div></div>',
+                unsafe_allow_html=True,
+            )
+
     findings = result["findings"]
     if not findings:
         ui_success("No findings. The stored plan did not break a recorded limit in this review.")
@@ -3182,27 +3214,29 @@ NAV_GROUPS = (
 )
 
 
+def _go_page(page_name):
+    """Callback executed before script rerun so nav_page updates immediately."""
+    st.session_state["nav_page"] = page_name
+
+
 def render_nav():
-    """One grouped menu. The current page uses the primary button style."""
+    """Deep Navy (#102536) EOC Sidebar with pure typography and Red (#E74747) active indicator."""
     if "nav_page" not in st.session_state:
         st.session_state["nav_page"] = "Situation Overview"
     st.sidebar.markdown(
-        '<div style="display:flex;align-items:center;gap:10px;padding-bottom:6px;">'
-        '<svg width="32" height="32" viewBox="0 0 48 48" aria-hidden="true" fill="none" stroke="#E1E6E9" stroke-width="1.8">'
-        '<circle cx="24" cy="24" r="21"/><circle cx="24" cy="24" r="5"/>'
-        '<line x1="24" y1="3" x2="24" y2="45"/><line x1="3" y1="24" x2="45" y2="24"/>'
-        '<line x1="9.2" y1="9.2" x2="38.8" y2="38.8"/><line x1="38.8" y1="9.2" x2="9.2" y2="38.8"/>'
-        '<line x1="13.5" y1="4.5" x2="34.5" y2="43.5"/><line x1="34.5" y1="4.5" x2="13.5" y2="43.5"/>'
-        '</svg>'
-        '<div>'
-        '<div style="font:600 18px Georgia,serif;letter-spacing:.24em;color:#F3F5F6;">SAARTHI</div>'
-        '<div style="font:500 9.5px sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#C5D0D6;">ECC · PS-03</div>'
-        '</div></div>',
-        unsafe_allow_html=True)
+        '<div style="padding:4px 4px 12px 4px;border-bottom:1px solid rgba(255,255,255,0.09);margin-bottom:6px;">'
+        '<div style="font-size:16px;font-weight:700;letter-spacing:0.12em;color:#FFFFFF;line-height:1.15;">SAARTHI</div>'
+        '<div style="font-size:10px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;color:#7F9BB2;margin-top:3px;">Ripple Command Centre</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     for index, (group, labels) in enumerate(NAV_GROUPS):
         if index:
             st.sidebar.divider()
-        st.sidebar.caption(group)
+        st.sidebar.markdown(
+            f'<div class="saarthi-nav-group"><span>{html.escape(group)}</span></div>',
+            unsafe_allow_html=True,
+        )
         for label in labels:
             active = st.session_state["nav_page"] == label
             st.sidebar.button(
@@ -3217,14 +3251,11 @@ def render_nav():
 
 
 choice = render_nav()
-live = st.sidebar.toggle("Live status", value=False, key="live_mode")
+live = st.sidebar.toggle(f"Live mode (refresh every {REFRESH_SECONDS} s)", value=False)  # auto refresh on/off
 sidebar_demos()  # demo buttons
 command_styles()
 command_bar(choice, live)
-render_top_controls()
-# Draw once. A run_every fragment rebuilt the map, charts and every tab on
-# each tick, so the running indicator never stayed off after the redesign.
-PAGES[choice]()
-st.markdown(
-    '<div class="saarthi-foot">Prototype view · simulated data · Team Peaky Coders · AgentX Hackathon</div>',
-    unsafe_allow_html=True)
+if live:
+    st.fragment(PAGES[choice], run_every=REFRESH_SECONDS)()  # draw the page, re-reading data on a timer
+else:
+    PAGES[choice]()
