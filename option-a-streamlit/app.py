@@ -32,6 +32,7 @@ import streamlit as st  # streamlit: turns this file into a web page
 import data  # our database and actions (data.py)
 import engine  # our decision logic (engine.py), used here only for small helpers
 import intake_agent  # citizen reports: classify, validate and prioritise
+import live_feeds  # read-only official/open hazard feeds; never writes the demo database
 import ripple_agent  # read-only cascade analysis; it does not change records
 import whatif_agent  # hypothetical scenarios on an in-memory copy; it does not write
 import plan_challenger_agent  # read-only review of the stored plan; it does not change records
@@ -321,7 +322,7 @@ def metric_tiles(items):
         accent = colour if colour != TEXT else STEEL
         value_col = colour if colour in (RED, ORANGE, YELLOW, BLUE, TEAL) else CHARCOAL
         cards.append(
-            f'<div class="saarthi-metric" style="border-left: 3.5px solid {accent};">'
+            f'<div class="saarthi-metric" style="border-top: 3px solid {accent};">'
             f'<div class="saarthi-metric-label">{html.escape(str(label))}</div>'
             f'<div class="saarthi-metric-value" style="color:{value_col};">{value}</div>'
             "</div>"
@@ -427,7 +428,6 @@ def command_styles():
             max-width: 1520px !important;
         }}
 
-        
         /* Prevent Streamlit Live Mode (10s fragment refresh) from dimming/fading elements to white */
         [data-stale="true"], [data-stale="true"] *, .stElementContainer[data-stale="true"], [data-testid="stVerticalBlock"][data-stale="true"] {{
             opacity: 1 !important;
@@ -1003,6 +1003,27 @@ def command_styles():
         [data-testid="stAlert"] *, [data-testid="stAlertContainer"] *, [data-baseweb="notification"] *, div[role="alert"] * {{
             color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important; background-color: transparent !important;
         }}
+        .stApp [data-baseweb="select"] > div, .stApp [data-baseweb="input"], .stApp [data-baseweb="input"] > div, .stApp [data-baseweb="base-input"], .stApp [data-baseweb="textarea"], .stApp [data-baseweb="textarea"] > div, .stApp [data-testid="stNumberInputContainer"] {{ border-radius: 6px !important; border: 1px solid #CBD5E1 !important; background: #F8FAFC !important; background-color: #F8FAFC !important; color: {CHARCOAL} !important; }}
+        .stApp [data-baseweb="select"] > div > div, .stApp [data-baseweb="select"] input, .stApp [data-baseweb="input"] input, .stApp [data-baseweb="textarea"] textarea, .stApp [data-testid="stNumberInput"] input {{ background: transparent !important; background-color: transparent !important; color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important; caret-color: {NAVY} !important; }}
+        .stApp [data-testid="stNumberInput"] button {{ background: #F1F5F9 !important; background-color: #F1F5F9 !important; color: {NAVY} !important; border-left: 1px solid #CBD5E1 !important; }}
+        .stApp [data-baseweb="select"] svg, .stApp [data-testid="stNumberInput"] svg {{ fill: {NAVY} !important; color: {NAVY} !important; }}
+        /* Map-layer chips: light pills + dark labels (avoid charcoal text on steel tags). */
+        .stApp [data-testid="stMultiSelect"] [data-baseweb="tag"],
+        .stApp [data-baseweb="tag"] {{ background: #EEF2F7 !important; background-color: #EEF2F7 !important; color: {NAVY} !important; -webkit-text-fill-color: {NAVY} !important; border-radius: 999px !important; border: 1px solid #CBD5E1 !important; padding: 2px 8px !important; margin: 2px 3px !important; font-size: 12px !important; font-weight: 600 !important; max-width: none !important; height: auto !important; min-height: 24px !important; }}
+        .stApp [data-testid="stMultiSelect"] [data-baseweb="tag"] span,
+        .stApp [data-baseweb="tag"] span {{ color: {NAVY} !important; -webkit-text-fill-color: {NAVY} !important; fill: {NAVY} !important; background: transparent !important; font-size: 12px !important; font-weight: 600 !important; opacity: 1 !important; visibility: visible !important; white-space: nowrap !important; }}
+        .stApp [data-testid="stMultiSelect"] [data-baseweb="tag"] svg,
+        .stApp [data-baseweb="tag"] svg {{ color: {MUTED_GREY} !important; fill: {MUTED_GREY} !important; opacity: 1 !important; }}
+        .stApp [data-testid="stMultiSelect"] [data-baseweb="select"] {{ min-height: 42px !important; }}
+        body [data-baseweb="popover"], body [data-baseweb="popover"] > div, body [data-baseweb="menu"], body ul[role="listbox"], body li[role="option"], body [data-testid="stSelectboxVirtualDropdown"] {{ background: {WHITE} !important; background-color: {WHITE} !important; color: {CHARCOAL} !important; border-radius: 6px !important; }}
+        body li[role="option"] *, body [data-baseweb="menu"] * {{ color: {CHARCOAL} !important; }}
+        body li[role="option"]:hover, body li[role="option"][aria-selected="true"] {{ background: {BG_GREY} !important; background-color: {BG_GREY} !important; color: {NAVY} !important; font-weight: 600 !important; }}
+        body [data-testid="stToast"], body [data-testid="stToast"] > div {{ background: {NAVY} !important; background-color: {NAVY} !important; color: {WHITE} !important; border: 1px solid {TEAL} !important; border-left: 4px solid {TEAL} !important; border-radius: 8px !important; box-shadow: 0 4px 12px rgba(16, 37, 54, 0.18) !important; }}
+        body [data-testid="stToast"] * {{ color: {WHITE} !important; }}
+        .stMain label p, .stMain [data-testid="stWidgetLabel"] p, .stMain [data-testid="stCheckbox"] label span, .stMain [data-testid="stCheckbox"] p {{ font-size: 10.5px !important; font-weight: 600 !important; letter-spacing: 0.04em !important; text-transform: uppercase !important; color: {MUTED_GREY} !important; }}
+        .stMain [data-testid="stRadio"] label span, .stMain [data-testid="stRadio"] p, .stMain [data-testid="stSlider"] * {{ color: {CHARCOAL} !important; }}
+        details[data-testid="stExpander"], details[data-testid="stExpander"] > div {{ background: {WHITE} !important; background-color: {WHITE} !important; border: 1px solid #E6ECF0 !important; border-radius: 8px !important; color: {CHARCOAL} !important; }}
+        details[data-testid="stExpander"] summary, details[data-testid="stExpander"] summary p, details[data-testid="stExpander"] summary span, details[data-testid="stExpander"] summary svg {{ font-size: 12px !important; font-weight: 600 !important; color: {NAVY} !important; fill: {NAVY} !important; background: {WHITE} !important; background-color: {WHITE} !important; border-radius: 8px !important; }}
         .saarthi-heading {{ display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0; }}
         .saarthi-title {{ color: {NAVY} !important; -webkit-text-fill-color: {NAVY} !important; font-size: 15.5px; font-weight: 700; line-height: 1.25; }}
         .saarthi-description {{ color: #475569 !important; -webkit-text-fill-color: #475569 !important; font-size: 12px; line-height: 1.4; }}
@@ -1213,13 +1234,14 @@ def command_bar(page, live):
         op_status = "STATUS: NOMINAL"
         op_col = TEAL
 
+    # `live` is only the sidebar auto-refresh toggle. Telemetry may also exist in the DB.
     live_api_active = data.has_live_telemetry()
-    if live_api_active:
-        conn_label = f"LIVE API & CAP XML ({REFRESH_SECONDS}S)" if live else "LIVE API / CAP XML TELEMETRY"
+    if live:
+        conn_label = f"AUTO-REFRESH ({REFRESH_SECONDS}S) · MIXED DATA"
         conn_col = TEAL
     else:
-        conn_label = f"AUTO-REFRESH ({REFRESH_SECONDS}S) · DEMO DB" if live else "SIMULATION / DEMO DATA (HOLD)"
-        conn_col = TEAL if live else ORANGE
+        conn_label = "REFRESH PAUSED · HOLD"
+        conn_col = TEAL if live_api_active else ORANGE
     timestamp = data.now()
 
     # Build scrolling alert ticker items from real database records
@@ -1284,7 +1306,8 @@ def render_deck(layers, height, key):
     st.markdown(
         '<div class="saarthi-map-bar">'
         '<div class="saarthi-map-bar-title">GIS Situational Awareness &amp; Cascading Impact Map</div>'
-        f'<div class="saarthi-map-bar-sub">Last map update: {html.escape(data.now())} ({"Live API / CAP XML" if data.has_live_telemetry() else "Recorded DB"})</div>'
+        f'<div class="saarthi-map-bar-sub">Last map update: {html.escape(data.now())} '
+        f'({"Live API / CAP XML" if data.has_live_telemetry() else "Situational Data"})</div>'
         '</div>',
         unsafe_allow_html=True)
     st.pydeck_chart(pdk.Deck(layers=layers,
@@ -1321,9 +1344,18 @@ def _place_labels(frame, text_column, offset):
                      get_background_color=[255, 255, 255, 230], background_padding=[4, 2, 4, 2], pickable=False)
 
 
-def draw_map(layers, height=540, key="map"):  # prominent GIS map with switchable layers
-    choices = ["Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments", "Rescue tasks"]  # every layer
-    shown = st.multiselect("Map Layers Control (Toggle Categories)", choices, default=layers, key=key)  # operator picks which to show
+def draw_map(layers, height=540, key="map", extra_layers=None):  # prominent GIS map with switchable layers
+    choices = ["Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments", "Rescue tasks"]
+    for name in extra_layers or ():
+        if name not in choices:
+            choices.append(name)
+    shown = st.multiselect(
+        "Map Layers Control (Toggle Categories)",
+        choices,
+        default=layers,
+        key=key,
+        help="Toggle GIS categories on the situational awareness map.",
+    )
     deck_layers = []  # the pydeck layers to draw, bottom first
     labels = []  # place names drawn after the symbols
     legend = []
@@ -1408,6 +1440,45 @@ def draw_map(layers, height=540, key="map"):  # prominent GIS map with switchabl
             (YELLOW, "Rescue moderate"),
             (BLUE, "Rescue low"),
         ))
+    if "Earthquakes" in shown:  # USGS live markers; Overview opts in via extra_layers only
+        try:
+            quakes = live_feeds.earthquake_markers()
+        except live_feeds.FeedError:
+            quakes = []
+        if quakes:
+            frame = df(quakes)
+            frame["color"] = [[180, 40, 40]] * len(frame)
+            deck_layers.append(pdk.Layer(
+                "ScatterplotLayer", frame, get_position="[lon, lat]", get_fill_color="color",
+                get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=8,
+                radius_units=_PIXELS, line_width_min_pixels=1.5, pickable=True))
+        legend.append((RED, "USGS earthquake"))
+    if "Active fires" in shown:  # NASA FIRMS; requires NASA_FIRMS_MAP_KEY
+        try:
+            fires = live_feeds.fire_markers()
+        except live_feeds.FeedError:
+            fires = []
+        if fires:
+            frame = df(fires)
+            frame["color"] = [[230, 100, 20]] * len(frame)
+            deck_layers.append(pdk.Layer(
+                "ScatterplotLayer", frame, get_position="[lon, lat]", get_fill_color="color",
+                get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=7,
+                radius_units=_PIXELS, line_width_min_pixels=1.5, pickable=True))
+        legend.append((ORANGE, "NASA FIRMS active fire"))
+    if "GDACS hazards" in shown:  # GDACS multi-hazard points
+        try:
+            hazards = live_feeds.gdacs_markers()
+        except live_feeds.FeedError:
+            hazards = []
+        if hazards:
+            frame = df(hazards)
+            frame["color"] = [[120, 60, 160]] * len(frame)
+            deck_layers.append(pdk.Layer(
+                "ScatterplotLayer", frame, get_position="[lon, lat]", get_fill_color="color",
+                get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=8,
+                radius_units=_PIXELS, line_width_min_pixels=1.5, pickable=True))
+        legend.append(("#783CA0", "GDACS hazard"))
     deck_layers.extend(labels)
     render_deck(deck_layers, height, f"{key}_deck")
     map_legend(legend)
@@ -1476,7 +1547,8 @@ def page_overview():  # PAGE 1: Unified Command-Centre Home Screen
     with map_col:
         with st.container(border=True):
             draw_map(["Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments"],
-                     height=540, key="ov_map")
+                     height=540, key="ov_map",
+                     extra_layers=("Earthquakes", "Active fires", "GDACS hazards"))
             # Selected Marker / Incident Inspector right beneath the map
             if active_incidents:
                 inc_options = [
@@ -1534,7 +1606,7 @@ def page_overview():  # PAGE 1: Unified Command-Centre Home Screen
                     f'<span><b>Team:</b> SEOC Broadcast Queue</span>'
                     f'</div></div>'
                 )
-            # Also surface top severity zones with live meteorological telemetry when present
+            # Severity zones: prefer stored telemetry; otherwise read-only Open-Meteo.
             telem_by_zone = data.latest_zone_telemetry()
             for z in sev[:4]:
                 lvl = z["level"]
@@ -1543,32 +1615,73 @@ def page_overview():  # PAGE 1: Unified Command-Centre Home Screen
                     (i.get("claimed_by") for i in incidents if i["zone"] == z["name"] and i.get("claimed_by")),
                     "District Response Unit" if z["open_requests"] else "Standby Monitoring",
                 )
+                weather_bits = [
+                    f'<span><b>Location:</b> {html.escape(z["name"])}</span>',
+                    f'<span><b>Prob:</b> {float(z["probability"]):.0%}</span>',
+                ]
+                source_line = ""
                 zt = telem_by_zone.get(z["name"], {})
-                wx_bits = []
-                if zt.get("temp_c") is not None:
-                    wx_bits.append(f"<span><b>Temp:</b> {float(zt['temp_c']):.1f} °C</span>")
-                if zt.get("gusts_kmh") is not None:
-                    wx_bits.append(f"<span><b>Gusts:</b> {float(zt['gusts_kmh']):.1f} km/h</span>")
-                if zt.get("precip_mm") is not None:
-                    wx_bits.append(f"<span><b>Rain:</b> {float(zt['precip_mm']):.1f} mm</span>")
-                if zt.get("pressure_hpa") is not None:
-                    wx_bits.append(f"<span><b>Pressure:</b> {float(zt['pressure_hpa']):.0f} hPa</span>")
-                if zt.get("source"):
-                    wx_bits.append(f"<span><b>Source:</b> {html.escape(str(zt['source']))}</span>")
-                wx_html = "".join(wx_bits)
+                has_stored_wx = any(
+                    zt.get(key) is not None
+                    for key in ("temp_c", "gusts_kmh", "wind_kmh", "precip_mm", "pressure_hpa")
+                )
+                if has_stored_wx:
+                    if zt.get("temp_c") is not None:
+                        weather_bits.append(f'<span><b>Temp:</b> {float(zt["temp_c"]):.1f} °C</span>')
+                    if zt.get("gusts_kmh") is not None:
+                        weather_bits.append(
+                            f'<span><b>Gusts:</b> {float(zt["gusts_kmh"]):.1f} km/h</span>')
+                    elif zt.get("wind_kmh") is not None:
+                        weather_bits.append(
+                            f'<span><b>Wind:</b> {float(zt["wind_kmh"]):.1f} km/h</span>')
+                    if zt.get("precip_mm") is not None:
+                        weather_bits.append(f'<span><b>Rain:</b> {float(zt["precip_mm"]):.1f} mm</span>')
+                    if zt.get("pressure_hpa") is not None:
+                        weather_bits.append(
+                            f'<span><b>Pressure:</b> {float(zt["pressure_hpa"]):.0f} hPa</span>')
+                    if zt.get("source"):
+                        source_line = (
+                            f'<div class="saarthi-alert-meta" style="margin-top:2px;">'
+                            f'<span>Source: {html.escape(str(zt["source"]))}</span>'
+                            f'</div>'
+                        )
+                else:
+                    try:
+                        wx = live_feeds.fetch_open_meteo(z["lat"], z["lon"], zone_name=z["name"])
+                        if wx.get("current_temp_c") is not None:
+                            weather_bits.append(
+                                f'<span><b>Temp:</b> {float(wx["current_temp_c"]):.1f} °C</span>')
+                        if wx.get("current_gusts") is not None:
+                            weather_bits.append(
+                                f'<span><b>Gusts:</b> {float(wx["current_gusts"]):.1f} km/h</span>')
+                        elif wx.get("current_wind") is not None:
+                            weather_bits.append(
+                                f'<span><b>Wind:</b> {float(wx["current_wind"]):.1f} km/h</span>')
+                        if wx.get("current_precip_mm") is not None:
+                            weather_bits.append(
+                                f'<span><b>Rain:</b> {float(wx["current_precip_mm"]):.1f} mm</span>')
+                        if wx.get("current_pressure_hpa") is not None:
+                            weather_bits.append(
+                                f'<span><b>Pressure:</b> {float(wx["current_pressure_hpa"]):.0f} hPa</span>')
+                        source_line = (
+                            f'<div class="saarthi-alert-meta" style="margin-top:2px;">'
+                            f'<span>Source: {html.escape(str(wx.get("source") or "Open-Meteo Live API"))}</span>'
+                            f'</div>'
+                        )
+                    except live_feeds.FeedError:
+                        pass
+                weather_bits.append(f'<span><b>Open SOS:</b> {z["open_requests"]}</span>')
+                weather_bits.append(f'<span><b>Assigned:</b> {html.escape(str(team_assigned))}</span>')
+                score_pill = status_pill(f"{lvl} · {z['score']}", cls_lvl)
                 alert_cards.append(
                     f'<div class="saarthi-alert-card {cls_lvl}">'
                     f'<div class="saarthi-alert-top">'
                     f'<span class="saarthi-alert-title">{html.escape(z["disaster_type"])} Exposure — {html.escape(z["name"])}</span>'
-                    f"{status_pill(str(lvl) + ' · ' + str(z['score']), cls_lvl)}"
+                    f'{score_pill}'
                     f'</div>'
-                    f'<div class="saarthi-alert-meta">'
-                    f'<span><b>Location:</b> {html.escape(z["name"])}</span>'
-                    f'<span><b>Prob:</b> {float(z["probability"]):.0%}</span>'
-                    f'{wx_html}'
-                    f'<span><b>Open SOS:</b> {z["open_requests"]}</span>'
-                    f'<span><b>Assigned:</b> {html.escape(str(team_assigned))}</span>'
-                    f'</div></div>'
+                    f'<div class="saarthi-alert-meta">{"".join(weather_bits)}</div>'
+                    f'{source_line}'
+                    f'</div>'
                 )
             st.markdown("".join(alert_cards[:6]), unsafe_allow_html=True)
 
@@ -1886,7 +1999,168 @@ def page_alerts():  # PAGE 2: early warnings
         if cap_logs:
             render_df_table(df(cap_logs), hide_index=True)
         else:
-            st.caption("No CAP XML advisories fetched yet. Click 'Sync NDMA SACHET CAP XML' or 'Sync GDACS Alert XML' above to pull live XML feeds.")
+            st.caption(
+                "No CAP XML advisories fetched yet. Click 'Sync NDMA SACHET CAP XML' or "
+                "'Sync GDACS Alert XML' above to pull live XML feeds."
+            )
+        st.caption("Read-only live feed inspectors (do not write alerts, risk_logs, or the plan).")
+        keys = live_feeds.key_status()
+        st.caption(
+            f"Keys configured — IMD API: {'yes' if keys['imd_api_key'] else 'no'} · "
+            f"NASA FIRMS: {'yes' if keys['firms_map_key'] else 'no'} · "
+            f"OpenRouteService: {'yes' if keys['ors_api_key'] else 'no'} "
+            "(ORS is used on Roads & Hospitals)."
+        )
+        sachet_col, imd_col = st.columns(2)
+        with sachet_col:
+            st.subheader("NDMA SACHET CAP")
+            st.caption("All-India CAP RSS + CAP XML AOIs from sachet.ndma.gov.in.")
+            try:
+                sachet_rows = live_feeds.fetch_sachet_rss(limit=12)
+            except live_feeds.FeedError as exc:
+                ui_error(str(exc))
+                sachet_rows = []
+            if sachet_rows:
+                mh = [row for row in sachet_rows if row.get("maharashtra")]
+                st.caption(f"{len(sachet_rows)} latest national items · {len(mh)} mention Maharashtra keywords.")
+                render_df_table(pd.DataFrame([{
+                    "id": row["id"],
+                    "published": row["published"],
+                    "title": row["title"][:110],
+                    "MH": "yes" if row["maharashtra"] else "",
+                } for row in sachet_rows]), hide_index=True)
+                chosen = st.selectbox(
+                    "Inspect CAP XML / AOI",
+                    [row["id"] for row in sachet_rows],
+                    format_func=lambda i: next(
+                        (f"{r['id']} · {r['title'][:70]}" for r in sachet_rows if r["id"] == i), str(i)),
+                    key="sachet_cap_pick")
+                if st.button("Fetch CAP XML + polygon AOI", key="sachet_fetch_cap"):
+                    try:
+                        cap = live_feeds.fetch_sachet_cap(chosen)
+                        aoi = live_feeds.fetch_sachet_aoi_polygon(chosen)
+                        st.markdown(
+                            f"**{html.escape(cap.get('event') or 'CAP alert')}** · "
+                            f"{html.escape(cap.get('severity') or '')} · "
+                            f"sender {html.escape(cap.get('sender') or 'not available')}")
+                        st.caption(cap.get("headline") or "No headline")
+                        st.caption(f"AOI: {cap.get('aoi_summary')}")
+                        if cap.get("geocodes"):
+                            st.caption("LGD / geocodes: " + ", ".join(
+                                f"{g['name']}={g['value']}" for g in cap["geocodes"][:8]))
+                        st.caption(f"Polygon URL: {aoi.get('polygon_url')}")
+                        st.code(aoi.get("preview") or "No polygon preview", language="xml")
+                    except live_feeds.FeedError as exc:
+                        ui_error(str(exc))
+            else:
+                st.caption("No SACHET items returned.")
+        with imd_col:
+            st.subheader("IMD API Gateway + CAP")
+            st.caption("Public IMD CAP RSS, WIS2 OAPI catalogue, and authenticated api.imd.gov.in calls.")
+            try:
+                imd_rows = live_feeds.fetch_imd_cap_rss(limit=10)
+                if imd_rows:
+                    render_df_table(pd.DataFrame([{
+                        "published": row["published"],
+                        "title": row["title"][:110],
+                        "MH": "yes" if row["maharashtra"] else "",
+                    } for row in imd_rows]), hide_index=True)
+                else:
+                    st.caption("IMD CAP RSS is reachable but currently has no active alert items.")
+            except live_feeds.FeedError as exc:
+                ui_error(str(exc))
+            try:
+                collections = live_feeds.fetch_imd_wis2_collections(limit=6)
+                if collections:
+                    with st.expander("IMD WIS2 OAPI collections"):
+                        render_df_table(pd.DataFrame(collections), hide_index=True)
+                else:
+                    st.caption("IMD WIS2 catalogue returned no collections.")
+            except live_feeds.FeedError as exc:
+                st.caption(str(exc))
+            if st.button("Query IMD API Gateway current_wx", key="imd_gateway_btn"):
+                try:
+                    payload = live_feeds.fetch_imd_gateway_current()
+                    gateway_data = payload.get("data")
+                    if isinstance(gateway_data, list):
+                        st.json({
+                            "endpoint": payload["endpoint"],
+                            "authenticated": payload["authenticated"],
+                            "sample": gateway_data[:3],
+                        })
+                    else:
+                        st.json(payload)
+                except live_feeds.FeedError as exc:
+                    ui_error(str(exc))
+
+        meteo_col, gdacs_col = st.columns(2)
+        with meteo_col:
+            st.subheader("Open-Meteo zone forecast")
+            st.caption("3-day forecast for a recorded demo zone. Not written into risk_logs.")
+            zones = data.read("SELECT name, lat, lon FROM zones ORDER BY name")
+            zone_names = [z["name"] for z in zones]
+            pick = st.selectbox("Forecast zone", zone_names, key="open_meteo_zone")
+            chosen_zone = next(z for z in zones if z["name"] == pick)
+            try:
+                forecast = live_feeds.fetch_open_meteo(
+                    chosen_zone["lat"], chosen_zone["lon"], zone_name=pick)
+                metric_tiles((
+                    ("Temp °C", forecast.get("current_temp_c"), TEAL),
+                    ("Precip mm", forecast.get("current_precip_mm"), BLUE),
+                    ("Wind", forecast.get("current_wind"), ORANGE),
+                    ("Humidity %", forecast.get("current_humidity"), STEEL),
+                ))
+                if forecast.get("days"):
+                    render_df_table(pd.DataFrame(forecast["days"]), hide_index=True)
+            except live_feeds.FeedError as exc:
+                ui_error(str(exc))
+        with gdacs_col:
+            st.subheader("GDACS multi-hazard feed")
+            st.caption("RSS multi-hazard events, India-focused when available.")
+            try:
+                gdacs_rows = live_feeds.fetch_gdacs(limit=12, india_focus=True)
+                render_df_table(pd.DataFrame([{
+                    "published": row["published"],
+                    "level": row["alert_level"],
+                    "type": row["event_type"],
+                    "country": row["country"] or row["iso3"],
+                    "title": row["title"][:90],
+                } for row in gdacs_rows]), hide_index=True)
+            except live_feeds.FeedError as exc:
+                ui_error(str(exc))
+
+        with st.expander("USGS earthquakes & NASA FIRMS (also toggleable on Situation Overview map)"):
+            left, right = st.columns(2)
+            with left:
+                st.markdown("**USGS earthquakes (India bbox, 72h)**")
+                try:
+                    quakes = live_feeds.fetch_usgs_earthquakes()
+                    if quakes:
+                        render_df_table(pd.DataFrame([{
+                            "time": row["time"],
+                            "mag": row["mag"],
+                            "place": row["place"],
+                        } for row in quakes[:15]]), hide_index=True)
+                    else:
+                        st.caption("No earthquakes in the India bounding box for the selected window.")
+                except live_feeds.FeedError as exc:
+                    ui_error(str(exc))
+            with right:
+                st.markdown("**NASA FIRMS active fires (Maharashtra AOI)**")
+                try:
+                    fires = live_feeds.fetch_firms_fires()
+                    if fires:
+                        render_df_table(pd.DataFrame([{
+                            "date": row["acq_date"],
+                            "time": row["acq_time"],
+                            "lat": row["lat"],
+                            "lon": row["lon"],
+                            "frp": row["frp"],
+                        } for row in fires[:20]]), hide_index=True)
+                    else:
+                        st.caption("No FIRMS detections in the Maharashtra AOI for the last day.")
+                except live_feeds.FeedError as exc:
+                    ui_error(str(exc))
 
 
 def page_severity():  # PAGE 3: which area is worst
@@ -2198,9 +2472,10 @@ def page_network():  # PAGE 5: roads, hospitals, stock (every change is an event
             st.caption("Recorded status. Open, slow, and blocked use the same states as the map.")
             if roads:
                 columns = ("id", "a", "b", "minutes", "current_minutes", "status")
+                headers = {"status": "state"}
                 status_class = {"OPEN": "saarthi-road-open", "SLOW": "saarthi-road-slow",
                                 "BLOCKED": "saarthi-road-blocked"}
-                head = "".join(f"<th>{html.escape(name)}</th>" for name in columns)
+                head = "".join(f"<th>{html.escape(headers.get(name, name))}</th>" for name in columns)
                 body = []
                 for road in roads:
                     cells = []
@@ -2228,6 +2503,40 @@ def page_network():  # PAGE 5: roads, hospitals, stock (every change is an event
                     st.rerun()
             else:
                 st.caption("No recorded roads.")
+    with st.container(border=True):
+        st.subheader("OpenRouteService live directions")
+        st.caption("Compares a recorded corridor against a live driving route. "
+                   "This does not change road status or the allocation plan. "
+                   "Requires OPENROUTESERVICE_API_KEY.")
+        if not roads:
+            st.caption("No recorded roads.")
+        else:
+            routable = [r for r in roads
+                        if r.get("a_lat") is not None and r.get("b_lat") is not None]
+            if not routable:
+                st.caption("Road endpoints do not have coordinates.")
+            else:
+                choice = st.selectbox(
+                    "Corridor",
+                    routable,
+                    format_func=lambda r: (
+                        f"{r['id']}: {r['a']} → {r['b']} "
+                        f"(recorded {network_cell(r.get('current_minutes'))} min · {r.get('status')})"),
+                    key="ors_road_pick")
+                if st.button("Request live directions", key="ors_directions_btn"):
+                    try:
+                        route = live_feeds.fetch_ors_directions(
+                            choice["a_lon"], choice["a_lat"], choice["b_lon"], choice["b_lat"])
+                        metric_tiles((
+                            ("Recorded minutes", network_cell(choice.get("current_minutes")), STEEL),
+                            ("Live duration min", route.get("duration_min"), TEAL),
+                            ("Live distance km", route.get("distance_km"), ORANGE),
+                            ("Road status", choice.get("status"), RED if choice.get("status") == "BLOCKED" else TEAL),
+                        ))
+                        if route.get("steps"):
+                            render_df_table(pd.DataFrame(route["steps"]), hide_index=True)
+                    except live_feeds.FeedError as exc:
+                        ui_error(str(exc))
     beds, stock = st.columns(2)
     with beds:
         with st.container(border=True):

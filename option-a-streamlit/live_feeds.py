@@ -371,7 +371,7 @@ def fetch_open_meteo(lat: float, lon: float, zone_name: str = "") -> dict:
     params = {
         "latitude": float(lat),
         "longitude": float(lon),
-        "current": "temperature_2m,precipitation,wind_speed_10m,relative_humidity_2m",
+        "current": "temperature_2m,precipitation,wind_speed_10m,wind_gusts_10m,relative_humidity_2m,surface_pressure",
         "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max",
         "forecast_days": 3,
         "timezone": "Asia/Kolkata",
@@ -396,10 +396,12 @@ def fetch_open_meteo(lat: float, lon: float, zone_name: str = "") -> dict:
         "current_temp_c": current.get("temperature_2m"),
         "current_precip_mm": current.get("precipitation"),
         "current_wind": current.get("wind_speed_10m"),
+        "current_gusts": current.get("wind_gusts_10m"),
         "current_humidity": current.get("relative_humidity_2m"),
+        "current_pressure_hpa": current.get("surface_pressure"),
         "observed_at": current.get("time"),
         "days": days,
-        "source": "Open-Meteo",
+        "source": "Open-Meteo Live API",
     }
 
 
