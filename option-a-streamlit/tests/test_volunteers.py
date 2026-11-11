@@ -1,4 +1,9 @@
-"""Volunteers page persistence. Uses a temporary database, never disaster.db."""
+"""Volunteers page persistence. Uses a temporary database, never disaster.db.
+
+Exercises the post-merge master Volunteers API:
+register_volunteer_team → create_rescue_task → assign_volunteer_team →
+dispatch_volunteer_assignment → update_rescue_progress.
+"""
 
 import os
 import sys
@@ -35,80 +40,91 @@ def incident_fingerprint():
             for row in data.read("SELECT id, status, people, zone FROM incidents ORDER BY id")]
 
 
+def _teams():
+    return data.read("SELECT * FROM volunteer_teams ORDER BY id DESC")
+
+
+def _tasks():
+    return data.read("SELECT * FROM rescue_tasks ORDER BY id DESC")
+
+
+def _assignments():
+    return data.read("SELECT * FROM volunteer_assignments ORDER BY id DESC")
+
+
+def _history(assignment_id):
+    return data.read(
+        "SELECT status FROM volunteer_status_history WHERE assignment_id=:a ORDER BY id",
+        a=assignment_id,
+    )
+
+
 def test_team_task_assignment_dispatch_and_progress():
     previous, path = temp_world()
     try:
         incidents = incident_fingerprint()
         version = data.latest_version()
-        team_id = data.register_ngo_team("Konkan Rescue", "A. Kulkarni", "Unit head", "Ratnagiri", "Rescue", 8)
-        task_id = data.create_rescue_task("Evacuation at the creek", "Ratnagiri", "High", 40, "Creek road")
-        team = data.list_ngo_teams()[0]
-        task = data.list_rescue_tasks()[0]
+        team_id = data.register_volunteer_team(
+            "Konkan Rescue", "A. Kulkarni", "Unit head", "Ratnagiri", "Rescue", 8)
+        task_id = data.create_rescue_task(
+            "Evacuation at the creek", "Ratnagiri", "High", 40, "Creek road")
+        team = _teams()[0]
+        task = _tasks()[0]
         assert team["id"] == team_id
         assert team["status"] == "AVAILABLE"
-        assert team["available"] == 8
-        assert team["lead_role"] == "Unit head"
+        assert team["capacity"] == 8
+        assert team["head_role"] == "Unit head"
+        assert team["team_name"] == "Konkan Rescue"
         assert task["id"] == task_id
-        assert task["status"] == "PENDING"
+        assert task["status"] == "OPEN"
         assert task["zone"] == "Ratnagiri"
         assert task["people"] == 40
         assert task["lat"] is not None and task["lon"] is not None
 
         with pytest.raises(data.ActionError):
-            data.assign_rescue_team(task_id, team_id, 9)
-        assert data.list_ngo_teams()[0]["available"] == 8
-        assert data.list_rescue_assignments() == []
+            data.assign_volunteer_team(task_id, 99999)
+        assert _teams()[0]["status"] == "AVAILABLE"
+        assert _assignments() == []
 
-        data.assign_rescue_team(task_id, team_id, 5)
-        assigned = data.list_rescue_tasks()[0]
-        team = data.list_ngo_teams()[0]
-        link = data.list_rescue_assignments()[0]
+        assignment_id = data.assign_volunteer_team(task_id, team_id)
+        assigned = _tasks()[0]
+        team = _teams()[0]
+        link = _assignments()[0]
+        assert link["id"] == assignment_id
         assert assigned["status"] == "ASSIGNED"
-        assert team["status"] == "AVAILABLE"
-        assert team["available"] == 3
+        assert team["status"] == "ASSIGNED"
         assert link["status"] == "ASSIGNED"
-        assert link["dispatched_at"] is None
-        assert data.volunteer_dashboard()["deployed"] == 0
+        assert link["volunteers"] == 8
 
         with pytest.raises(data.ActionError):
-            data.update_rescue_progress(task_id, "IN_PROGRESS")
-        assert data.list_rescue_tasks()[0]["status"] == "ASSIGNED"
+            data.update_rescue_progress(assignment_id, "IN_PROGRESS")
+        assert _tasks()[0]["status"] == "ASSIGNED"
 
-        data.dispatch_rescue_assignment(link["id"])
-        dispatched = data.list_rescue_tasks()[0]
-        team = data.list_ngo_teams()[0]
-        link = data.list_rescue_assignments()[0]
+        data.dispatch_volunteer_assignment(assignment_id)
+        dispatched = _tasks()[0]
+        team = _teams()[0]
+        link = _assignments()[0]
         assert dispatched["status"] == "DISPATCHED"
         assert team["status"] == "DEPLOYED"
         assert link["status"] == "DISPATCHED"
-        assert link["dispatched_at"]
-        board = data.volunteer_dashboard()
-        assert board["teams"] == 1
-        assert board["volunteers"] == 8
-        assert board["available"] == 3
-        assert board["active_tasks"] == 1
-        assert board["deployed"] == 1
-        assert board["completed"] == 0
 
-        data.update_rescue_progress(task_id, "IN_PROGRESS")
-        data.update_rescue_progress(task_id, "RESCUED")
-        data.update_rescue_progress(task_id, "COMPLETED")
-        finished = data.list_rescue_tasks()[0]
-        team = data.list_ngo_teams()[0]
+        data.update_rescue_progress(assignment_id, "IN_PROGRESS")
+        data.update_rescue_progress(assignment_id, "RESCUED")
+        data.update_rescue_progress(assignment_id, "COMPLETED")
+        finished = _tasks()[0]
+        team = _teams()[0]
         assert finished["status"] == "COMPLETED"
         assert team["status"] == "AVAILABLE"
-        assert team["available"] == 8
-        logged = [row["status"] for row in data.rescue_status_log(task_id)]
-        assert logged == ["PENDING", "ASSIGNED", "DISPATCHED", "IN_PROGRESS", "RESCUED", "COMPLETED"]
-        done = data.volunteer_dashboard()
-        assert done["active_tasks"] == 0
-        assert done["completed"] == 1
-        assert done["deployed"] == 0
+        logged = [row["status"] for row in _history(assignment_id)]
+        assert logged == ["ASSIGNED", "DISPATCHED", "IN_PROGRESS", "RESCUED", "COMPLETED"]
         assert data.latest_version() == version
         assert incident_fingerprint() == incidents
-        marker = data.rescue_task_markers()[0]
-        assert marker["id"] == task_id
-        assert "Rescue tasks" not in ("Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments")
+        markers = data.read(
+            "SELECT id, title, zone, lat, lon, priority, people, status FROM rescue_tasks WHERE id=:i",
+            i=task_id)
+        assert markers[0]["id"] == task_id
+        assert "Rescue tasks" not in (
+            "Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments")
     finally:
         restore_world(previous, path)
 
@@ -117,9 +133,10 @@ def test_missing_volunteer_tables_are_added_without_touching_incidents():
     previous, path = temp_world()
     try:
         before = incident_fingerprint()
-        data.write("DROP TABLE IF EXISTS ngo_teams")
-        data.register_ngo_team("Sindhudurg Care", "M. Patil", "NGO head", "Sindhudurg", "Shelter", 6)
-        assert data.list_ngo_teams()[0]["name"] == "Sindhudurg Care"
+        data.write("DROP TABLE IF EXISTS volunteer_teams")
+        data.register_volunteer_team(
+            "Sindhudurg Care", "M. Patil", "NGO head", "Sindhudurg", "Shelter", 6)
+        assert _teams()[0]["team_name"] == "Sindhudurg Care"
         assert incident_fingerprint() == before
         assert data.read("SELECT COUNT(*) AS n FROM zones")[0]["n"] == 7
     finally:

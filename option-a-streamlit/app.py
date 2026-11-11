@@ -162,8 +162,58 @@ def progress_bar_html(label, right_text, pct, tone="teal", badge_text=None):
     )
 
 
+_TABLE_STATUS_CLASSES = {
+    "CRITICAL": "saarthi-cell-critical",
+    "Critical": "saarthi-cell-critical",
+    "Red": "saarthi-cell-critical",
+    "Extreme": "saarthi-cell-critical",
+    "BLOCKED": "saarthi-cell-critical",
+    "confirmed": "saarthi-cell-critical",
+    "Rejected": "saarthi-cell-critical",
+    "rejected": "saarthi-cell-critical",
+    "invalid": "saarthi-cell-critical",
+    "HIGH": "saarthi-cell-high",
+    "High": "saarthi-cell-high",
+    "Orange": "saarthi-cell-high",
+    "Severe": "saarthi-cell-high",
+    "SLOW": "saarthi-cell-high",
+    "IN_TRANSIT": "saarthi-cell-high",
+    "DISPATCHED": "saarthi-cell-high",
+    "QUEUED": "saarthi-cell-high",
+    "Pending": "saarthi-cell-high",
+    "pending": "saarthi-cell-high",
+    "potential": "saarthi-cell-high",
+    "inconsistent": "saarthi-cell-high",
+    "duplicate": "saarthi-cell-high",
+    "MODERATE": "saarthi-cell-moderate",
+    "Moderate": "saarthi-cell-moderate",
+    "MEDIUM": "saarthi-cell-moderate",
+    "Yellow": "saarthi-cell-moderate",
+    "ALLOCATED": "saarthi-cell-moderate",
+    "incomplete": "saarthi-cell-moderate",
+    "LOW": "saarthi-cell-low",
+    "Low": "saarthi-cell-low",
+    "SENT": "saarthi-cell-low",
+    "ACKNOWLEDGED": "saarthi-cell-low",
+    "Approved, not logged": "saarthi-cell-low",
+    "ASSIGNED": "saarthi-cell-moderate",
+    "DEPLOYED": "saarthi-cell-high",
+    "IN_PROGRESS": "saarthi-cell-high",
+    "RESCUED": "saarthi-cell-low",
+    "AVAILABLE": "saarthi-cell-safe",
+    "COMPLETED": "saarthi-cell-safe",
+    "OPEN": "saarthi-cell-safe",
+    "RESOLVED": "saarthi-cell-safe",
+    "DISTRIBUTED": "saarthi-cell-safe",
+    "RECEIVED": "saarthi-cell-safe",
+    "Logged": "saarthi-cell-safe",
+    "valid": "saarthi-cell-safe",
+    "approved": "saarthi-cell-safe",
+}
+
+
 def render_df_table(data_obj, hide_index=True, target=None):
-    """Render a DataFrame or list of dicts as a clean, non-overlapping EOC HTML table."""
+    """Render a DataFrame or list of dicts as a clean, non-overlapping, high-contrast EOC HTML table."""
     target = st if target is None else target
     frame = data_obj if isinstance(data_obj, pd.DataFrame) else pd.DataFrame(data_obj)
     if frame.empty:
@@ -182,7 +232,9 @@ def render_df_table(data_obj, hide_index=True, target=None):
                 shown = "not available"
             else:
                 shown = str(val)
-            cells.append(f"<td>{html.escape(shown)}</td>")
+            cell_cls = _TABLE_STATUS_CLASSES.get(shown, "")
+            cls_attr = f' class="{cell_cls}"' if cell_cls else ""
+            cells.append(f"<td{cls_attr}>{html.escape(shown)}</td>")
         body.append("<tr>" + "".join(cells) + "</tr>")
     target.markdown(
         '<div class="saarthi-table-container">'
@@ -296,6 +348,7 @@ def style_chart(fig):
             borderwidth=1,
         ),
         margin=dict(t=8, b=8, l=8, r=8),
+        hoverlabel=dict(bgcolor=NAVY, font_size=12, font_family="Inter, sans-serif", font_color=WHITE, bordercolor=STEEL),
     )
     fig.update_xaxes(
         gridcolor="#EDF2F7", linecolor=LINE, zerolinecolor=LINE,
@@ -314,53 +367,621 @@ def command_styles():
     """Saarthi Ripple Hybrid EOC Design System:
     Deep Navy (#102536) sidebar, Steel Blue (#193C50) accents, Soft Light Grey (#F2F5F7) workspace,
     Alert Red (#E74747) for critical only, Warning Amber (#E6A23C), Moderate Yellow (#D9A520),
-    Low Blue (#2B6CB0), Operational Green (#269B75)."""
+    Low Blue (#2B6CB0), Operational Green (#269B75).
+    Enforces crisp dark-on-light contrast for all dropdown options, inputs, buttons, and table cells."""
     st.markdown(
         f"""<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"><style>
-        :root {{ --saarthi-canvas: {CANVAS}; --saarthi-raised: {RAISED}; --saarthi-inset: {INSET}; --saarthi-sidebar: {SIDEBAR}; --saarthi-line: {LINE}; --saarthi-text: {TEXT}; --saarthi-muted: {MUTED}; --saarthi-warning: {WARNING}; --primary-color: {NAVY}; --background-color: {WHITE}; --secondary-background-color: {BG_GREY}; --text-color: {CHARCOAL}; color-scheme: light !important; }}
-        html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"], .main {{ background: {BG_GREY} !important; background-color: {BG_GREY} !important; color: {CHARCOAL} !important; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important; font-size: 13.5px !important; font-variant-numeric: tabular-nums; color-scheme: light !important; -webkit-font-smoothing: antialiased; }}
+        :root {{
+            --saarthi-canvas: {CANVAS};
+            --saarthi-raised: {RAISED};
+            --saarthi-inset: {INSET};
+            --saarthi-sidebar: {SIDEBAR};
+            --saarthi-line: {LINE};
+            --saarthi-text: {TEXT};
+            --saarthi-muted: {MUTED};
+            --saarthi-warning: {WARNING};
+            --primary-color: {NAVY};
+            --background-color: {WHITE};
+            --secondary-background-color: {BG_GREY};
+            --text-color: {CHARCOAL};
+            color-scheme: light !important;
+        }}
+        html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"], .main {{
+            background: {BG_GREY} !important;
+            background-color: {BG_GREY} !important;
+            color: {CHARCOAL} !important;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+            font-size: 13.5px !important;
+            font-variant-numeric: tabular-nums;
+            color-scheme: light !important;
+            -webkit-font-smoothing: antialiased;
+        }}
         [data-testid="stDeployButton"], .stAppDeployButton {{ display: none !important; }}
         header[data-testid="stHeader"] {{ background: transparent !important; height: 2.2rem !important; }}
-        [data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapseButton"] button, [data-testid="collapsedControl"], [data-testid="collapsedControl"] button, [data-testid="stSidebarCollapsedControl"], [data-testid="stSidebarCollapsedControl"] button, header[data-testid="stHeader"] [data-testid="baseButton-headerNoPadding"], header[data-testid="stHeader"] button {{ background: {NAVY} !important; background-color: {NAVY} !important; color: {WHITE} !important; border: 1px solid rgba(255,255,255,0.22) !important; border-radius: 6px !important; opacity: 1 !important; visibility: visible !important; box-shadow: 0 1px 3px rgba(16, 37, 54, 0.2) !important; }}
-        [data-testid="stExpandSidebarButton"]:hover, [data-testid="stSidebarCollapseButton"] button:hover, [data-testid="collapsedControl"]:hover, [data-testid="collapsedControl"] button:hover, [data-testid="stSidebarCollapsedControl"] button:hover, header[data-testid="stHeader"] button:hover {{ background: {STEEL} !important; background-color: {STEEL} !important; color: {WHITE} !important; border-color: {ORANGE} !important; }}
-        [data-testid="stExpandSidebarButton"] *, [data-testid="stSidebarCollapseButton"] button *, [data-testid="collapsedControl"] *, [data-testid="stSidebarCollapsedControl"] *, header[data-testid="stHeader"] button * {{ color: {WHITE} !important; fill: {WHITE} !important; }}
-        .block-container {{ padding-top: 0.45rem !important; padding-bottom: 1.5rem !important; padding-left: 1.4rem !important; padding-right: 1.4rem !important; max-width: 1520px !important; }}
-        [data-testid="stSidebar"], [data-testid="stSidebar"] > div {{ background: {NAVY} !important; background-color: {NAVY} !important; border-right: 1px solid #0B1926 !important; color: {WHITE} !important; }}
+        [data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapseButton"] button, [data-testid="collapsedControl"], [data-testid="collapsedControl"] button, [data-testid="stSidebarCollapsedControl"], [data-testid="stSidebarCollapsedControl"] button, header[data-testid="stHeader"] [data-testid="baseButton-headerNoPadding"], header[data-testid="stHeader"] button {{
+            background: {NAVY} !important;
+            background-color: {NAVY} !important;
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+            border: 1px solid rgba(255,255,255,0.22) !important;
+            border-radius: 6px !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+            box-shadow: 0 1px 3px rgba(16, 37, 54, 0.2) !important;
+        }}
+        [data-testid="stExpandSidebarButton"]:hover, [data-testid="stSidebarCollapseButton"] button:hover, [data-testid="collapsedControl"]:hover, [data-testid="collapsedControl"] button:hover, [data-testid="stSidebarCollapsedControl"] button:hover, header[data-testid="stHeader"] button:hover {{
+            background: {STEEL} !important;
+            background-color: {STEEL} !important;
+            color: {WHITE} !important;
+            border-color: {ORANGE} !important;
+        }}
+        [data-testid="stExpandSidebarButton"] *, [data-testid="stSidebarCollapseButton"] button *, [data-testid="collapsedControl"] *, [data-testid="stSidebarCollapsedControl"] *, header[data-testid="stHeader"] button * {{
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+            fill: {WHITE} !important;
+        }}
+        .block-container {{
+            padding-top: 0.45rem !important;
+            padding-bottom: 1.5rem !important;
+            padding-left: 1.4rem !important;
+            padding-right: 1.4rem !important;
+            max-width: 1520px !important;
+        }}
+
+        /* Prevent Streamlit Live Mode (10s fragment refresh) from dimming/fading elements to white */
+        [data-stale="true"], [data-stale="true"] *, .stElementContainer[data-stale="true"], [data-testid="stVerticalBlock"][data-stale="true"] {{
+            opacity: 1 !important;
+            transition: none !important;
+            filter: none !important;
+        }}
+
+        /* ---------------- SIDEBAR ---------------- */
+        [data-testid="stSidebar"], [data-testid="stSidebar"] > div {{
+            background: {NAVY} !important;
+            background-color: {NAVY} !important;
+            border-right: 1px solid #0B1926 !important;
+            color: {WHITE} !important;
+        }}
         [data-testid="stSidebar"] .block-container {{ padding-top: 0.85rem !important; padding-left: 0.8rem !important; padding-right: 0.8rem !important; }}
-        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{ gap: 0.25rem !important; }}
-        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{ color: {WHITE} !important; font-weight: 600 !important; letter-spacing: 0.02em !important; }}
-        [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label, [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{ color: #E2E8F0 !important; }}
-        [data-testid="stSidebar"] hr {{ border-color: rgba(255, 255, 255, 0.09) !important; margin: 0.4rem 0 !important; }}
-        .saarthi-nav-group {{ padding: 7px 6px 2px 6px; color: #7F9BB2; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button {{ min-height: 33px !important; padding: 5px 11px !important; font-size: 12.5px !important; font-weight: 500 !important; text-align: left !important; justify-content: flex-start !important; border-radius: 6px !important; border: 1px solid transparent !important; border-left: 3px solid transparent !important; background: transparent !important; color: #CBD5E1 !important; transition: background 0.12s ease !important; width: 100% !important; display: flex !important; }}
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{ gap: 0.42rem !important; }}
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+        [data-testid="stSidebar"] [data-testid="stElementContainer"],
+        [data-testid="stSidebar"] .element-container {{
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+        }}
+        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+            font-weight: 600 !important;
+            letter-spacing: 0.02em !important;
+            margin-top: 0.25rem !important;
+            margin-bottom: 0.15rem !important;
+        }}
+        [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label, [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{
+            color: #E2E8F0 !important;
+            -webkit-text-fill-color: #E2E8F0 !important;
+            opacity: 1 !important;
+        }}
+        [data-testid="stSidebar"] hr {{ border-color: rgba(255, 255, 255, 0.10) !important; margin: 0.45rem 0 0.2rem 0 !important; }}
+        .saarthi-nav-group {{
+            display: block !important;
+            padding: 6px 6px 4px 6px !important;
+            margin-top: 2px !important;
+            margin-bottom: 2px !important;
+            line-height: 1.35 !important;
+            color: #94A3B8 !important;
+            font-size: 10px !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.12em !important;
+            text-transform: uppercase !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button {{
+            min-height: 33px !important;
+            padding: 5px 11px !important;
+            font-size: 12.5px !important;
+            font-weight: 500 !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+            border-radius: 6px !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-left: 3px solid transparent !important;
+            background: rgba(255, 255, 255, 0.03) !important;
+            color: #E2E8F0 !important;
+            -webkit-text-fill-color: #E2E8F0 !important;
+            opacity: 1 !important;
+            transition: background 0.12s ease !important;
+            width: 100% !important;
+            display: flex !important;
+        }}
         [data-testid="stSidebar"] [data-testid="stButton"] button > div {{ justify-content: flex-start !important; text-align: left !important; width: 100% !important; display: flex !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button:hover {{ background: rgba(25, 60, 80, 0.7) !important; color: {WHITE} !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button:hover p, [data-testid="stSidebar"] [data-testid="stButton"] button:hover span {{ color: {WHITE} !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] {{ background: {STEEL} !important; background-color: {STEEL} !important; color: {WHITE} !important; border: 1px solid rgba(231, 71, 71, 0.35) !important; border-left: 3.5px solid {RED} !important; font-weight: 600 !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] p, [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] span {{ color: {WHITE} !important; font-weight: 600 !important; }}
-        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="secondary"] p, [data-testid="stSidebar"] [data-testid="stButton"] button[kind="secondary"] span {{ color: #CBD5E1 !important; }}
-        [data-testid="stSidebar"] .saarthi-notice {{ background: rgba(230, 162, 60, 0.12) !important; border: 1px solid rgba(230, 162, 60, 0.35) !important; border-left: 3px solid {ORANGE} !important; border-radius: 6px !important; color: #F8FAFC !important; padding: 6px 9px !important; font-size: 11px !important; }}
-        [data-testid="stSidebar"] .saarthi-notice span {{ color: #F8FAFC !important; }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button * {{
+            color: #E2E8F0 !important;
+            -webkit-text-fill-color: #E2E8F0 !important;
+            opacity: 1 !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button:hover {{
+            background: rgba(25, 60, 80, 0.85) !important;
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+            border-color: rgba(255, 255, 255, 0.2) !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button:hover * {{
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] {{
+            background: {STEEL} !important;
+            background-color: {STEEL} !important;
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+            border: 1px solid rgba(231, 71, 71, 0.45) !important;
+            border-left: 3.5px solid {RED} !important;
+            font-weight: 600 !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] * {{
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+            font-weight: 600 !important;
+        }}
+        [data-testid="stSidebar"] .saarthi-notice {{
+            background: rgba(230, 162, 60, 0.14) !important;
+            border: 1px solid rgba(230, 162, 60, 0.4) !important;
+            border-left: 3px solid {ORANGE} !important;
+            border-radius: 6px !important;
+            color: #F8FAFC !important;
+            -webkit-text-fill-color: #F8FAFC !important;
+            padding: 6px 9px !important;
+            font-size: 11px !important;
+        }}
+        [data-testid="stSidebar"] .saarthi-notice span {{ color: #F8FAFC !important; -webkit-text-fill-color: #F8FAFC !important; }}
+
+        /* ---------------- MAIN TYPOGRAPHY & CONTAINERS ---------------- */
         [data-testid="stHeading"] {{ margin-bottom: 0.1rem; }}
-        [data-testid="stHeading"] h1, [data-testid="stHeading"] h2, [data-testid="stHeading"] h3 {{ font-family: 'Inter', sans-serif !important; font-weight: 600 !important; color: {NAVY} !important; letter-spacing: -0.01em !important; }}
+        [data-testid="stHeading"] h1, [data-testid="stHeading"] h2, [data-testid="stHeading"] h3 {{
+            font-family: 'Inter', sans-serif !important;
+            font-weight: 600 !important;
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            letter-spacing: -0.01em !important;
+        }}
         [data-testid="stHeading"] h2 {{ font-size: 15.5px !important; }}
         [data-testid="stHeading"] h3 {{ font-size: 14px !important; }}
         [data-testid="stVerticalBlock"] {{ gap: 0.55rem; }}
-        [data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li {{ margin-bottom: 0 !important; color: {CHARCOAL}; }}
-        [data-testid="stMarkdownContainer"] code, .stApp code {{ font-family: 'JetBrains Mono', ui-monospace, monospace !important; background: {BG_GREY} !important; color: {NAVY} !important; border: 1px solid {LINE} !important; padding: 2px 5px !important; border-radius: 4px !important; font-size: 11.5px !important; }}
-        [data-testid="stCaptionContainer"] p {{ font-size: 11.5px !important; line-height: 1.4 !important; color: {MUTED_GREY} !important; }}
-        [data-testid="stVerticalBlockBorderWrapper"], [data-testid="stVerticalBlock"].st-emotion-cache-pb8mwp, div[data-testid="stForm"] {{ background: {WHITE} !important; background-color: {WHITE} !important; border: 1px solid #E6ECF0 !important; border-radius: 8px !important; padding: 14px 16px !important; box-shadow: 0 1px 2px rgba(16, 37, 54, 0.04) !important; }}
-        .stMain [data-testid="stButton"] button, .stMain [data-testid="stFormSubmitButton"] button {{ border-radius: 6px !important; min-height: 34px !important; padding: 5px 12px !important; font-size: 12px !important; font-weight: 600 !important; border: 1px solid #CBD5E1 !important; background: {WHITE} !important; background-color: {WHITE} !important; color: {NAVY} !important; white-space: nowrap !important; transition: all 0.12s ease !important; }}
-        .stMain [data-testid="stButton"] button p, .stMain [data-testid="stButton"] button span, .stMain [data-testid="stFormSubmitButton"] button p, .stMain [data-testid="stFormSubmitButton"] button span {{ color: {NAVY} !important; white-space: nowrap !important; }}
-        .stMain [data-testid="stButton"] button:hover, .stMain [data-testid="stFormSubmitButton"] button:hover {{ background: {BG_GREY} !important; background-color: {BG_GREY} !important; border-color: {STEEL} !important; color: {NAVY} !important; }}
-        .stMain [data-testid="stButton"] button[kind="primary"], .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] {{ background: {STEEL} !important; background-color: {STEEL} !important; color: {WHITE} !important; border: 1px solid {STEEL} !important; }}
-        .stMain [data-testid="stButton"] button[kind="primary"] p, .stMain [data-testid="stButton"] button[kind="primary"] span, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] p, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] span {{ color: {WHITE} !important; }}
-        .stMain [data-testid="stButton"] button[kind="primary"]:hover, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover {{ background: {NAVY} !important; background-color: {NAVY} !important; border-color: {NAVY} !important; color: {WHITE} !important; }}
-        .stMain [data-testid="stButton"] button[kind="primary"]:hover p, .stMain [data-testid="stButton"] button[kind="primary"]:hover span, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover p, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover span {{ color: {WHITE} !important; }}
-        .saarthi-callout {{ display: flex; align-items: flex-start; gap: 10px; padding: 9px 13px; margin: 3px 0; border: 1px solid {LINE}; border-left: 3.5px solid {STEEL}; border-radius: 6px; background: {WHITE} !important; color: {CHARCOAL} !important; font-size: 12.5px; line-height: 1.45; }}
+        .stMain [data-testid="stMarkdownContainer"],
+        .stMain [data-testid="stMarkdownContainer"] p,
+        .stMain [data-testid="stMarkdownContainer"] li {{
+            margin-bottom: 0 !important;
+            color: {CHARCOAL} !important;
+        }}
+        [data-testid="stMarkdownContainer"] code, .stApp code {{
+            font-family: 'JetBrains Mono', ui-monospace, monospace !important;
+            background: {BG_GREY} !important;
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            border: 1px solid {LINE} !important;
+            padding: 2px 5px !important;
+            border-radius: 4px !important;
+            font-size: 11.5px !important;
+        }}
+        .stMain [data-testid="stCaptionContainer"],
+        .stMain [data-testid="stCaptionContainer"] p,
+        .stMain [data-testid="stCaptionContainer"] span {{
+            font-size: 11.5px !important;
+            line-height: 1.45 !important;
+            color: #475569 !important;
+            -webkit-text-fill-color: #475569 !important;
+            opacity: 1 !important;
+        }}
+        [data-testid="stVerticalBlockBorderWrapper"], [data-testid="stVerticalBlock"].st-emotion-cache-pb8mwp, div[data-testid="stForm"] {{
+            background: {WHITE} !important;
+            background-color: {WHITE} !important;
+            border: 1px solid #DCE4EC !important;
+            border-radius: 8px !important;
+            padding: 14px 16px !important;
+            box-shadow: 0 1px 2px rgba(16, 37, 54, 0.04) !important;
+        }}
+
+        /* ---------------- MAIN BUTTONS ---------------- */
+        .stMain [data-testid="stButton"] button, .stMain [data-testid="stFormSubmitButton"] button {{
+            border-radius: 6px !important;
+            min-height: 34px !important;
+            padding: 5px 12px !important;
+            font-size: 12px !important;
+            font-weight: 600 !important;
+            border: 1px solid #94A3B8 !important;
+            background: #F8FAFC !important;
+            background-color: #F8FAFC !important;
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            opacity: 1 !important;
+            white-space: nowrap !important;
+            transition: all 0.12s ease !important;
+        }}
+        .stMain [data-testid="stButton"] button *, .stMain [data-testid="stFormSubmitButton"] button * {{
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            opacity: 1 !important;
+            white-space: nowrap !important;
+        }}
+        .stMain [data-testid="stButton"] button:hover,
+        .stMain [data-testid="stButton"] button:focus,
+        .stMain [data-testid="stButton"] button:active,
+        .stMain [data-testid="stFormSubmitButton"] button:hover,
+        .stMain [data-testid="stFormSubmitButton"] button:focus,
+        .stMain [data-testid="stFormSubmitButton"] button:active {{
+            background: #E2E8F0 !important;
+            background-color: #E2E8F0 !important;
+            border-color: {NAVY} !important;
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+        }}
+        .stMain [data-testid="stButton"] button:hover *,
+        .stMain [data-testid="stButton"] button:focus *,
+        .stMain [data-testid="stButton"] button:active *,
+        .stMain [data-testid="stFormSubmitButton"] button:hover *,
+        .stMain [data-testid="stFormSubmitButton"] button:focus *,
+        .stMain [data-testid="stFormSubmitButton"] button:active * {{
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+        }}
+        .stMain [data-testid="stButton"] button[kind="primary"], .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] {{
+            background: {STEEL} !important;
+            background-color: {STEEL} !important;
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+            border: 1px solid {STEEL} !important;
+        }}
+        .stMain [data-testid="stButton"] button[kind="primary"] *, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"] * {{
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+        }}
+        .stMain [data-testid="stButton"] button[kind="primary"]:hover, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover {{
+            background: {NAVY} !important;
+            background-color: {NAVY} !important;
+            border-color: {NAVY} !important;
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+        }}
+        .stMain [data-testid="stButton"] button[kind="primary"]:hover *, .stMain [data-testid="stFormSubmitButton"] button[kind="primary"]:hover * {{
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+        }}
+        .stMain [data-testid="stButton"] button:disabled, .stMain [data-testid="stFormSubmitButton"] button:disabled {{
+            background: #E2E8F0 !important;
+            background-color: #E2E8F0 !important;
+            color: #475569 !important;
+            -webkit-text-fill-color: #475569 !important;
+            border: 1px solid #CBD5E1 !important;
+            opacity: 0.85 !important;
+        }}
+        .stMain [data-testid="stButton"] button:disabled *, .stMain [data-testid="stFormSubmitButton"] button:disabled * {{
+            color: #475569 !important;
+            -webkit-text-fill-color: #475569 !important;
+            opacity: 1 !important;
+        }}
+
+        /* ---------------- SELECTBOXES, INPUTS, TEXTAREAS & FORM CONTROLS ---------------- */
+        /* 1. Force opaque crisp white surface and dark charcoal text on all selectboxes, textareas, and inputs */
+        html body [data-baseweb="select"],
+        html body [data-baseweb="select"] div,
+        html body [data-baseweb="select"] span,
+        html body [data-baseweb="select"] input,
+        html body [data-baseweb="input"],
+        html body [data-baseweb="input"] div,
+        html body [data-baseweb="input"] input,
+        html body [data-baseweb="base-input"],
+        html body [data-baseweb="base-input"] div,
+        html body [data-baseweb="base-input"] input,
+        html body [data-baseweb="base-input"] textarea,
+        html body [data-baseweb="textarea"],
+        html body [data-baseweb="textarea"] div,
+        html body [data-baseweb="textarea"] textarea,
+        html body [data-testid="stSelectbox"] div,
+        html body [data-testid="stSelectbox"] span,
+        html body [data-testid="stSelectbox"] input,
+        html body [data-testid="stMultiSelect"] div,
+        html body [data-testid="stTextArea"] div,
+        html body [data-testid="stTextArea"] textarea,
+        html body [data-testid="stTextInput"] div,
+        html body [data-testid="stTextInput"] input,
+        html body [data-testid="stNumberInput"] input,
+        html body [data-testid="stNumberInputContainer"],
+        html body [data-testid="stNumberInputContainer"] div {{
+            background: #FFFFFF !important;
+            background-color: #FFFFFF !important;
+            color: {CHARCOAL} !important;
+            -webkit-text-fill-color: {CHARCOAL} !important;
+            caret-color: {NAVY} !important;
+            font-weight: 500 !important;
+            opacity: 1 !important;
+        }}
+        html body [data-baseweb="select"] > div,
+        html body [data-baseweb="input"],
+        html body [data-baseweb="textarea"],
+        html body [data-testid="stNumberInputContainer"] {{
+            border-radius: 6px !important;
+            border: 1px solid #94A3B8 !important;
+        }}
+        html body [data-testid="InputInstructions"],
+        html body [data-testid="InputInstructions"] * {{
+            background: transparent !important;
+            background-color: transparent !important;
+            color: #64748B !important;
+            -webkit-text-fill-color: #64748B !important;
+            font-size: 10.5px !important;
+        }}
+        html body input::placeholder, html body textarea::placeholder {{
+            color: #64748B !important;
+            -webkit-text-fill-color: #64748B !important;
+            opacity: 1 !important;
+        }}
+        html body [data-testid="stNumberInput"] button,
+        html body [data-testid="stNumberInput"] button:hover,
+        html body [data-testid="stNumberInput"] button:focus,
+        html body [data-testid="stNumberInput"] button:active {{
+            background: #E2E8F0 !important;
+            background-color: #E2E8F0 !important;
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            border-left: 1px solid #94A3B8 !important;
+            opacity: 1 !important;
+        }}
+        html body [data-testid="stNumberInput"] button *,
+        html body [data-testid="stNumberInput"] button:hover *,
+        html body [data-testid="stNumberInput"] button:focus *,
+        html body [data-testid="stNumberInput"] button:active * {{
+            fill: {NAVY} !important;
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            background: transparent !important;
+        }}
+        html body [data-baseweb="select"] svg, html body [data-testid="stNumberInput"] svg {{
+            fill: {NAVY} !important;
+            color: {NAVY} !important;
+            opacity: 1 !important;
+        }}
+        /* 2. Multiselect selected tags (white text on Steel Blue pill, overriding general select div rule) */
+        html body [data-baseweb="tag"],
+        html body [data-baseweb="select"] [data-baseweb="tag"] {{
+            background: {STEEL} !important;
+            background-color: {STEEL} !important;
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+            border-radius: 4px !important;
+            border: none !important;
+            padding: 2px 8px !important;
+            margin: 2px 3px !important;
+            font-size: 11.5px !important;
+            font-weight: 600 !important;
+        }}
+        html body [data-baseweb="tag"] span,
+        html body [data-baseweb="tag"] div,
+        html body [data-baseweb="tag"] svg,
+        html body [data-baseweb="select"] [data-baseweb="tag"] span,
+        html body [data-baseweb="select"] [data-baseweb="tag"] div,
+        html body [data-baseweb="select"] [data-baseweb="tag"] svg {{
+            background: transparent !important;
+            background-color: transparent !important;
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+            fill: {WHITE} !important;
+        }}
+
+        /* 4. OPEN DROPDOWN POPOVERS, VIRTUAL DROPDOWNS & OPTION ITEMS (100% dark text on white surface) */
+        html body [data-baseweb="popover"],
+        html body [data-baseweb="popover"] > div,
+        html body [data-baseweb="menu"],
+        html body [data-testid="stSelectboxVirtualDropdown"],
+        html body [data-testid="stSelectboxVirtualDropdown"] > div,
+        html body ul[role="listbox"],
+        html body div[role="listbox"] {{
+            background: {WHITE} !important;
+            background-color: {WHITE} !important;
+            color: {CHARCOAL} !important;
+            -webkit-text-fill-color: {CHARCOAL} !important;
+            border-radius: 6px !important;
+            border: 1px solid #94A3B8 !important;
+            box-shadow: 0 8px 24px rgba(16, 37, 54, 0.16) !important;
+        }}
+        html body [data-baseweb="popover"] *,
+        html body [data-baseweb="menu"] *,
+        html body [data-testid="stSelectboxVirtualDropdown"] *,
+        html body ul[role="listbox"] *,
+        html body div[role="listbox"] *,
+        html body li[role="option"],
+        html body div[role="option"],
+        html body [role="option"] * {{
+            color: {CHARCOAL} !important;
+            -webkit-text-fill-color: {CHARCOAL} !important;
+            opacity: 1 !important;
+            font-weight: 500 !important;
+        }}
+        html body [data-baseweb="popover"] li,
+        html body [data-baseweb="menu"] li,
+        html body [data-testid="stSelectboxVirtualDropdown"] li,
+        html body li[role="option"],
+        html body div[role="option"] {{
+            background: {WHITE} !important;
+            background-color: {WHITE} !important;
+            color: {CHARCOAL} !important;
+            -webkit-text-fill-color: {CHARCOAL} !important;
+            border-bottom: 1px solid #F1F5F9 !important;
+        }}
+        html body [data-baseweb="popover"] li *,
+        html body [data-baseweb="menu"] li *,
+        html body [data-testid="stSelectboxVirtualDropdown"] li *,
+        html body li[role="option"] *,
+        html body div[role="option"] * {{
+            background: transparent !important;
+            background-color: transparent !important;
+            color: {CHARCOAL} !important;
+            -webkit-text-fill-color: {CHARCOAL} !important;
+            opacity: 1 !important;
+        }}
+        /* Hover & active/selected option rows inside dropdowns */
+        html body [data-baseweb="popover"] li:hover,
+        html body [data-baseweb="menu"] li:hover,
+        html body [data-testid="stSelectboxVirtualDropdown"] li:hover,
+        html body li[role="option"]:hover,
+        html body div[role="option"]:hover,
+        html body li[role="option"][aria-selected="true"],
+        html body div[role="option"][aria-selected="true"] {{
+            background: #E2E8F0 !important;
+            background-color: #E2E8F0 !important;
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            font-weight: 700 !important;
+        }}
+        html body [data-baseweb="popover"] li:hover *,
+        html body [data-baseweb="menu"] li:hover *,
+        html body [data-testid="stSelectboxVirtualDropdown"] li:hover *,
+        html body li[role="option"]:hover *,
+        html body div[role="option"]:hover *,
+        html body li[role="option"][aria-selected="true"] *,
+        html body div[role="option"][aria-selected="true"] * {{
+            background: transparent !important;
+            background-color: transparent !important;
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            font-weight: 700 !important;
+            opacity: 1 !important;
+        }}
+
+        /* 5. Radio buttons, Checkboxes, Sliders & Widget Labels */
+        .stMain label p,
+        .stMain [data-testid="stWidgetLabel"] p,
+        .stMain [data-testid="stWidgetLabel"] span {{
+            font-size: 11px !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.04em !important;
+            text-transform: uppercase !important;
+            color: #334155 !important;
+            -webkit-text-fill-color: #334155 !important;
+            opacity: 1 !important;
+        }}
+        .stMain [data-testid="stCheckbox"] label span,
+        .stMain [data-testid="stCheckbox"] p,
+        .stMain [data-testid="stCheckbox"] * {{
+            color: {CHARCOAL} !important;
+            -webkit-text-fill-color: {CHARCOAL} !important;
+            font-size: 12px !important;
+            font-weight: 500 !important;
+            text-transform: none !important;
+            opacity: 1 !important;
+        }}
+        .stMain [data-testid="stRadio"] label,
+        .stMain [data-testid="stRadio"] label span,
+        .stMain [data-testid="stRadio"] p,
+        .stMain [data-testid="stRadio"] div[role="radiogroup"] *,
+        .stMain [data-testid="stSlider"] * {{
+            color: {CHARCOAL} !important;
+            -webkit-text-fill-color: {CHARCOAL} !important;
+            font-weight: 500 !important;
+            opacity: 1 !important;
+        }}
+        html body [data-testid="stExpander"],
+        html body [data-testid="stExpander"] > details,
+        html body [data-testid="stExpander"] > div,
+        html body [data-testid="stExpanderDetails"],
+        html body details {{
+            background: {WHITE} !important;
+            background-color: {WHITE} !important;
+            border: 1px solid #CBD5E1 !important;
+            border-radius: 8px !important;
+            color: {CHARCOAL} !important;
+            -webkit-text-fill-color: {CHARCOAL} !important;
+        }}
+        html body [data-testid="stExpander"] summary,
+        html body [data-testid="stExpander"] details summary,
+        html body details summary {{
+            font-size: 12.5px !important;
+            font-weight: 600 !important;
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            fill: {NAVY} !important;
+            background: #F1F5F9 !important;
+            background-color: #F1F5F9 !important;
+            border-radius: 7px !important;
+            padding: 8px 12px !important;
+            opacity: 1 !important;
+        }}
+        html body [data-testid="stExpander"] summary *,
+        html body [data-testid="stExpander"] details summary *,
+        html body details summary * {{
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            fill: {NAVY} !important;
+            background: transparent !important;
+            background-color: transparent !important;
+            font-weight: 600 !important;
+            opacity: 1 !important;
+        }}
+        html body [data-testid="stExpander"] summary:hover,
+        html body [data-testid="stExpander"] summary:focus,
+        html body [data-testid="stExpander"] details[open] > summary,
+        html body details summary:hover,
+        html body details[open] > summary {{
+            background: #E2E8F0 !important;
+            background-color: #E2E8F0 !important;
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            fill: {NAVY} !important;
+        }}
+        html body [data-testid="stExpander"] summary:hover *,
+        html body [data-testid="stExpander"] summary:focus *,
+        html body [data-testid="stExpander"] details[open] > summary *,
+        html body details summary:hover *,
+        html body details[open] > summary * {{
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            fill: {NAVY} !important;
+            background: transparent !important;
+            background-color: transparent !important;
+        }}
+        html body [data-testid="stSlider"] *,
+        html body [data-baseweb="slider"] *,
+        html body [data-testid="stThumbValue"],
+        html body [data-testid="stTickBarMin"],
+        html body [data-testid="stTickBarMax"] {{
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            font-weight: 600 !important;
+        }}
+        html body .deck-tooltip,
+        html body [data-baseweb="tooltip"],
+        html body [data-baseweb="tooltip"] > div {{
+            background: {NAVY} !important;
+            background-color: {NAVY} !important;
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+            border: 1px solid {STEEL} !important;
+            border-radius: 6px !important;
+            font-size: 12px !important;
+            padding: 6px 10px !important;
+        }}
+
+        /* ---------------- TOASTS, CALLOUTS & NOTICES ---------------- */
+        body [data-testid="stToast"], body [data-testid="stToast"] > div {{
+            background: {NAVY} !important;
+            background-color: {NAVY} !important;
+            color: {WHITE} !important;
+            -webkit-text-fill-color: {WHITE} !important;
+            border: 1px solid {TEAL} !important;
+            border-left: 4px solid {TEAL} !important;
+            border-radius: 8px !important;
+            box-shadow: 0 4px 12px rgba(16, 37, 54, 0.18) !important;
+        }}
+        body [data-testid="stToast"] * {{ color: {WHITE} !important; -webkit-text-fill-color: {WHITE} !important; }}
+        .saarthi-callout {{
+            display: flex; align-items: flex-start; gap: 10px; padding: 9px 13px; margin: 3px 0;
+            border: 1px solid {LINE}; border-left: 3.5px solid {STEEL}; border-radius: 6px;
+            background: {WHITE} !important; color: {CHARCOAL} !important; font-size: 12.5px; line-height: 1.45;
+        }}
         .saarthi-callout-body {{ display: flex; flex-direction: column; gap: 1px; color: {CHARCOAL} !important; }}
         .saarthi-callout-body b {{ font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: {STEEL}; }}
-        .saarthi-callout-body span {{ color: {CHARCOAL} !important; font-size: 12.5px; }}
+        .saarthi-callout-body span {{ color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important; font-size: 12.5px; }}
         .saarthi-callout-dot {{ width: 7px; height: 7px; border-radius: 50%; background: {STEEL}; flex: none; margin-top: 5px; }}
         .saarthi-callout-info {{ border-left-color: {BLUE}; background: #F8FAFC !important; }}
         .saarthi-callout-info .saarthi-callout-dot {{ background: {BLUE}; }}
@@ -374,8 +995,14 @@ def command_styles():
         .saarthi-callout-error {{ border-left-color: {RED}; background: #FEF2F2 !important; }}
         .saarthi-callout-error .saarthi-callout-dot {{ background: {RED}; }}
         .saarthi-callout-error .saarthi-callout-body b {{ color: {RED}; }}
-        [data-testid="stAlert"], [data-testid="stAlert"] > div, [data-testid="stAlertContainer"], [data-baseweb="notification"], div[role="alert"] {{ background: {WHITE} !important; background-color: {WHITE} !important; color: {CHARCOAL} !important; border: 1px solid {LINE} !important; border-left: 3.5px solid {STEEL} !important; border-radius: 6px !important; }}
-        [data-testid="stAlert"] *, [data-testid="stAlertContainer"] *, [data-baseweb="notification"] *, div[role="alert"] * {{ color: {CHARCOAL} !important; background-color: transparent !important; }}
+        [data-testid="stAlert"], [data-testid="stAlert"] > div, [data-testid="stAlertContainer"], [data-baseweb="notification"], div[role="alert"] {{
+            background: {WHITE} !important; background-color: {WHITE} !important;
+            color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important;
+            border: 1px solid {LINE} !important; border-left: 3.5px solid {STEEL} !important; border-radius: 6px !important;
+        }}
+        [data-testid="stAlert"] *, [data-testid="stAlertContainer"] *, [data-baseweb="notification"] *, div[role="alert"] * {{
+            color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important; background-color: transparent !important;
+        }}
         .stApp [data-baseweb="select"] > div, .stApp [data-baseweb="input"], .stApp [data-baseweb="input"] > div, .stApp [data-baseweb="base-input"], .stApp [data-baseweb="textarea"], .stApp [data-baseweb="textarea"] > div, .stApp [data-testid="stNumberInputContainer"] {{ border-radius: 6px !important; border: 1px solid #CBD5E1 !important; background: #F8FAFC !important; background-color: #F8FAFC !important; color: {CHARCOAL} !important; }}
         .stApp [data-baseweb="select"] > div > div, .stApp [data-baseweb="select"] input, .stApp [data-baseweb="input"] input, .stApp [data-baseweb="textarea"] textarea, .stApp [data-testid="stNumberInput"] input {{ background: transparent !important; background-color: transparent !important; color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important; caret-color: {NAVY} !important; }}
         .stApp [data-testid="stNumberInput"] button {{ background: #F1F5F9 !important; background-color: #F1F5F9 !important; color: {NAVY} !important; border-left: 1px solid #CBD5E1 !important; }}
@@ -398,59 +1025,170 @@ def command_styles():
         details[data-testid="stExpander"], details[data-testid="stExpander"] > div {{ background: {WHITE} !important; background-color: {WHITE} !important; border: 1px solid #E6ECF0 !important; border-radius: 8px !important; color: {CHARCOAL} !important; }}
         details[data-testid="stExpander"] summary, details[data-testid="stExpander"] summary p, details[data-testid="stExpander"] summary span, details[data-testid="stExpander"] summary svg {{ font-size: 12px !important; font-weight: 600 !important; color: {NAVY} !important; fill: {NAVY} !important; background: {WHITE} !important; background-color: {WHITE} !important; border-radius: 8px !important; }}
         .saarthi-heading {{ display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0; }}
-        .saarthi-title {{ color: {NAVY}; font-size: 15.5px; font-weight: 600; line-height: 1.25; }}
-        .saarthi-description {{ color: {MUTED_GREY}; font-size: 12px; line-height: 1.4; }}
-        .saarthi-notice {{ display: flex; gap: 8px; align-items: flex-start; border: 1px solid {LINE}; border-left: 3px solid {STEEL}; border-radius: 6px; background: {INSET}; padding: 7px 11px; color: {CHARCOAL}; font-size: 12px; line-height: 1.4; }}
-        .saarthi-notice-caution {{ color: #92400E; border-color: {WARNING_BORDER}; border-left: 3px solid {ORANGE}; background: {WARNING_BG}; }}
+        .saarthi-title {{ color: {NAVY} !important; -webkit-text-fill-color: {NAVY} !important; font-size: 15.5px; font-weight: 700; line-height: 1.25; }}
+        .saarthi-description {{ color: #475569 !important; -webkit-text-fill-color: #475569 !important; font-size: 12px; line-height: 1.4; }}
+        .saarthi-notice {{
+            display: flex; gap: 8px; align-items: flex-start;
+            border: 1px solid #CBD5E1; border-left: 3.5px solid {STEEL}; border-radius: 6px;
+            background: #F8FAFC !important; padding: 8px 12px;
+            color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important;
+            font-size: 12px; font-weight: 500; line-height: 1.45;
+        }}
+        .saarthi-notice span {{ color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important; opacity: 1 !important; }}
+        .saarthi-notice-caution {{ color: #92400E !important; -webkit-text-fill-color: #92400E !important; border-color: {WARNING_BORDER}; border-left: 3.5px solid {ORANGE}; background: {WARNING_BG} !important; }}
+        .saarthi-notice-caution span {{ color: #92400E !important; -webkit-text-fill-color: #92400E !important; }}
         .saarthi-notice-dot {{ width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; margin-top: 5px; }}
+
+        /* ---------------- KPI METRICS, HEADER & TICKER ---------------- */
         .saarthi-metrics {{ display: grid; gap: 10px; margin: 2px 0; align-items: stretch; }}
-        .saarthi-metric {{ display: flex; flex-direction: column; justify-content: space-between; min-height: 76px; border: 1px solid #E6ECF0; border-radius: 8px; background: {WHITE}; padding: 11px 14px; min-width: 0; box-shadow: 0 1px 2px rgba(16, 37, 54, 0.03); }}
-        .saarthi-metric-label {{ color: {MUTED_GREY}; font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+        .saarthi-metric {{ display: flex; flex-direction: column; justify-content: space-between; min-height: 76px; border: 1px solid #DCE4EC; border-radius: 8px; background: {WHITE}; padding: 11px 14px; min-width: 0; box-shadow: 0 1px 2px rgba(16, 37, 54, 0.03); }}
+        .saarthi-metric-label {{ color: #475569 !important; -webkit-text-fill-color: #475569 !important; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
         .saarthi-metric-value {{ font-size: 22px; font-weight: 700; line-height: 1.15; margin-top: 6px; font-variant-numeric: tabular-nums; color: {CHARCOAL}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-        /* Top Command Header & Alert Ticker */
-        .saarthi-eoc-header {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: {NAVY}; color: {WHITE}; border-radius: 8px 8px 0 0; padding: 11px 18px; border-bottom: 1px solid {STEEL}; }}
+        .saarthi-eoc-header {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: {NAVY} !important; color: {WHITE} !important; border-radius: 8px 8px 0 0; padding: 11px 18px; border-bottom: 1px solid {STEEL}; }}
         .saarthi-eoc-brand {{ display: flex; align-items: center; gap: 14px; min-width: 0; }}
-        .saarthi-mark {{ color: #94A3B8; font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; line-height: 1.2; }}
-        .saarthi-page {{ color: {WHITE}; font-size: 16.5px; font-weight: 600; line-height: 1.2; margin-top: 1px; }}
+        .saarthi-mark {{ color: #CBD5E1 !important; -webkit-text-fill-color: #CBD5E1 !important; font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; line-height: 1.2; }}
+        .saarthi-page {{ color: {WHITE} !important; -webkit-text-fill-color: {WHITE} !important; font-size: 16.5px; font-weight: 600; line-height: 1.2; margin-top: 1px; }}
         .saarthi-eoc-meta {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
-        .saarthi-eoc-pill {{ display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 5px; background: {STEEL}; color: #E2E8F0; border: 1px solid rgba(255,255,255,0.1); white-space: nowrap; }}
-        .saarthi-eoc-clock {{ font-family: 'JetBrains Mono', ui-monospace, monospace; color: #CBD5E1; font-size: 11px; font-weight: 500; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px; padding: 4px 9px; font-variant-numeric: tabular-nums; }}
-        .saarthi-ticker {{ display: flex; align-items: center; gap: 12px; background: {STEEL}; color: #F1F5F9; padding: 6px 16px; border-radius: 0 0 8px 8px; font-size: 11.5px; overflow-x: auto; white-space: nowrap; margin-bottom: 4px; box-shadow: 0 2px 5px rgba(16, 37, 54, 0.08); }}
-        .saarthi-ticker-tag {{ font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; background: {RED}; color: {WHITE}; flex: none; }}
-        .saarthi-ticker-items {{ display: inline-flex; align-items: center; gap: 18px; }}
-        .saarthi-ticker-sep {{ color: #64748B; }}
-        /* Map Header & Legend */
-        .saarthi-map-bar {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: {STEEL}; color: {WHITE}; padding: 9px 14px; border-radius: 6px 6px 0 0; margin-top: 2px; }}
-        .saarthi-map-bar-title {{ font-size: 12.5px; font-weight: 600; letter-spacing: 0.02em; color: {WHITE}; }}
-        .saarthi-map-bar-sub {{ font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #CBD5E1; }}
-        .saarthi-legend {{ background: {INSET}; border: 1px solid {LINE}; border-radius: 0 0 6px 6px; padding: 8px 12px; color: {CHARCOAL}; font-size: 11.5px; line-height: 1.5; display: flex; flex-wrap: wrap; gap: 14px; margin-top: -4px; }}
-        /* Tables */
-        .saarthi-table-container {{ width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; display: block; min-width: 0; border: 1px solid #E6ECF0; border-radius: 6px; background: {WHITE}; margin: 3px 0; }}
-        table.saarthi-scan, table.saarthi-requests {{ width: 100% !important; border-collapse: collapse !important; border: none !important; font-size: 12px !important; background: {WHITE} !important; margin: 0 !important; }}
-        table.saarthi-scan th, table.saarthi-requests th {{ background: {BG_GREY} !important; color: {MUTED_GREY} !important; font-size: 10.5px !important; font-weight: 600 !important; letter-spacing: 0.05em !important; text-transform: uppercase !important; text-align: left !important; padding: 8px 12px !important; border: none !important; border-bottom: 1px solid {LINE} !important; white-space: nowrap !important; }}
-        table.saarthi-scan td, table.saarthi-requests td {{ padding: 8px 12px !important; border: none !important; border-bottom: 1px solid {LINE} !important; color: {CHARCOAL} !important; background: {WHITE} !important; vertical-align: middle !important; line-height: 1.4 !important; }}
+        .saarthi-eoc-pill {{ display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 5px; background: {STEEL} !important; color: #F8FAFC !important; -webkit-text-fill-color: #F8FAFC !important; border: 1px solid rgba(255,255,255,0.14); white-space: nowrap; }}
+        .saarthi-eoc-clock {{ font-family: 'JetBrains Mono', ui-monospace, monospace; color: #F1F5F9 !important; -webkit-text-fill-color: #F1F5F9 !important; font-size: 11px; font-weight: 500; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); border-radius: 5px; padding: 4px 9px; font-variant-numeric: tabular-nums; }}
+        .saarthi-ticker {{ display: flex; align-items: center; gap: 12px; background: {STEEL} !important; color: #F8FAFC !important; padding: 6px 16px; border-radius: 0 0 8px 8px; font-size: 11.5px; overflow-x: auto; white-space: nowrap; margin-bottom: 4px; box-shadow: 0 2px 5px rgba(16, 37, 54, 0.08); }}
+        .saarthi-ticker-tag {{ font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; background: {RED} !important; color: {WHITE} !important; -webkit-text-fill-color: {WHITE} !important; flex: none; }}
+        .saarthi-ticker-items {{ display: inline-flex; align-items: center; gap: 18px; color: #F8FAFC !important; }}
+        .saarthi-ticker-sep {{ color: #94A3B8; }}
+        .saarthi-map-bar {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: {STEEL} !important; color: {WHITE} !important; padding: 9px 14px; border-radius: 6px 6px 0 0; margin-top: 2px; }}
+        .saarthi-map-bar-title {{ font-size: 12.5px; font-weight: 600; letter-spacing: 0.02em; color: {WHITE} !important; -webkit-text-fill-color: {WHITE} !important; }}
+        .saarthi-map-bar-sub {{ font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #E2E8F0 !important; -webkit-text-fill-color: #E2E8F0 !important; }}
+        .saarthi-legend {{ background: {INSET} !important; border: 1px solid {LINE}; border-radius: 0 0 6px 6px; padding: 8px 12px; color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important; font-size: 11.5px; line-height: 1.5; display: flex; flex-wrap: wrap; gap: 14px; margin-top: -4px; }}
+        .saarthi-legend * {{ color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important; }}
+
+        /* ---------------- TABLES & HIGH-CONTRAST CELL OPTIONS ---------------- */
+        .saarthi-table-container {{
+            width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+            display: block; min-width: 0; border: 1px solid #CBD5E1; border-radius: 6px;
+            background: {WHITE} !important; margin: 3px 0;
+        }}
+        table.saarthi-scan, table.saarthi-requests, .stMain table {{
+            width: 100% !important; border-collapse: collapse !important; border: none !important;
+            font-size: 12px !important; background: {WHITE} !important; margin: 0 !important;
+        }}
+        table.saarthi-scan th, table.saarthi-requests th, .stMain table th {{
+            background: #E2E8F0 !important;
+            background-color: #E2E8F0 !important;
+            color: {NAVY} !important;
+            -webkit-text-fill-color: {NAVY} !important;
+            font-size: 10.5px !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.05em !important;
+            text-transform: uppercase !important;
+            text-align: left !important;
+            padding: 8px 12px !important;
+            border: none !important;
+            border-bottom: 1.5px solid #CBD5E1 !important;
+            white-space: nowrap !important;
+            opacity: 1 !important;
+        }}
+        table.saarthi-scan td, table.saarthi-requests td, .stMain table td {{
+            padding: 8px 12px !important;
+            border: none !important;
+            border-bottom: 1px solid #E2E8F0 !important;
+            color: {CHARCOAL} !important;
+            -webkit-text-fill-color: {CHARCOAL} !important;
+            background: {WHITE} !important;
+            background-color: {WHITE} !important;
+            vertical-align: middle !important;
+            line-height: 1.4 !important;
+            font-weight: 500 !important;
+            opacity: 1 !important;
+        }}
+        table.saarthi-scan td *, table.saarthi-requests td * {{
+            color: inherit !important;
+            -webkit-text-fill-color: inherit !important;
+            opacity: 1 !important;
+        }}
         table.saarthi-scan tbody tr:last-child td, table.saarthi-requests tbody tr:last-child td {{ border-bottom: none !important; }}
-        table.saarthi-scan tbody tr:hover td, table.saarthi-requests tbody tr:hover td {{ background: #F8FAFC !important; }}
+        table.saarthi-scan tbody tr:hover td, table.saarthi-requests tbody tr:hover td {{ background: #F1F5F9 !important; background-color: #F1F5F9 !important; }}
         .saarthi-scan td.saarthi-nowrap, .saarthi-requests td.saarthi-nowrap {{ white-space: nowrap !important; }}
-        /* Alert Cards & Progress Bars */
-        .saarthi-alert-card {{ border: 1px solid #E6ECF0; border-left: 3.5px solid {RED}; border-radius: 6px; padding: 9px 12px; margin-bottom: 8px; background: {WHITE}; }}
+
+        /* High-contrast semantic status/option classes inside tables across all pages */
+        table.saarthi-scan td.saarthi-cell-critical,
+        table.saarthi-scan td.saarthi-warn-red,
+        table.saarthi-scan td.saarthi-level-critical,
+        table.saarthi-scan td.saarthi-road-blocked,
+        table.saarthi-scan td.saarthi-q-rejected,
+        table.saarthi-scan td.saarthi-pri-critical,
+        table.saarthi-requests td.saarthi-status-open {{
+            color: #C81E1E !important;
+            -webkit-text-fill-color: #C81E1E !important;
+            background: #FEF2F2 !important;
+            font-weight: 700 !important;
+        }}
+        table.saarthi-scan td.saarthi-cell-high,
+        table.saarthi-scan td.saarthi-warn-orange,
+        table.saarthi-scan td.saarthi-level-high,
+        table.saarthi-scan td.saarthi-road-slow,
+        table.saarthi-scan td.saarthi-sms-queued,
+        table.saarthi-scan td.saarthi-impact,
+        table.saarthi-scan td.saarthi-ship-moving,
+        table.saarthi-scan td.saarthi-ship-allocated,
+        table.saarthi-scan td.saarthi-q-pending,
+        table.saarthi-scan td.saarthi-pri-high,
+        table.saarthi-requests td.saarthi-status-transit {{
+            color: #B45309 !important;
+            -webkit-text-fill-color: #B45309 !important;
+            background: #FFFBEB !important;
+            font-weight: 700 !important;
+        }}
+        table.saarthi-scan td.saarthi-cell-moderate,
+        table.saarthi-scan td.saarthi-warn-yellow,
+        table.saarthi-scan td.saarthi-level-moderate,
+        table.saarthi-scan td.saarthi-pri-medium {{
+            color: #92400E !important;
+            -webkit-text-fill-color: #92400E !important;
+            background: #FEFCE8 !important;
+            font-weight: 700 !important;
+        }}
+        table.saarthi-scan td.saarthi-cell-low,
+        table.saarthi-scan td.saarthi-level-low,
+        table.saarthi-scan td.saarthi-sms-sent,
+        table.saarthi-scan td.saarthi-sms-acknowledged,
+        table.saarthi-scan td.saarthi-q-approved,
+        table.saarthi-scan td.saarthi-pri-low {{
+            color: #1D4ED8 !important;
+            -webkit-text-fill-color: #1D4ED8 !important;
+            background: #EFF6FF !important;
+            font-weight: 700 !important;
+        }}
+        table.saarthi-scan td.saarthi-cell-safe,
+        table.saarthi-scan td.saarthi-road-open,
+        table.saarthi-scan td.saarthi-ship-done,
+        table.saarthi-scan td.saarthi-q-logged,
+        table.saarthi-requests td.saarthi-status-resolved {{
+            color: #15803D !important;
+            -webkit-text-fill-color: #15803D !important;
+            background: #ECFDF5 !important;
+            font-weight: 700 !important;
+        }}
+
+        /* ---------------- ALERT CARDS, PROGRESS BARS & CASCADE ---------------- */
+        .saarthi-alert-card {{ border: 1px solid #DCE4EC; border-left: 3.5px solid {RED}; border-radius: 6px; padding: 9px 12px; margin-bottom: 8px; background: {WHITE} !important; color: {CHARCOAL} !important; }}
         .saarthi-alert-card.high {{ border-left-color: {ORANGE}; }}
         .saarthi-alert-card.moderate {{ border-left-color: {YELLOW}; }}
         .saarthi-alert-card.low {{ border-left-color: {BLUE}; }}
         .saarthi-alert-card.resolved {{ border-left-color: {TEAL}; }}
         .saarthi-alert-top {{ display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }}
-        .saarthi-alert-title {{ font-size: 12.5px; font-weight: 600; color: {NAVY}; }}
-        .saarthi-alert-meta {{ display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: {MUTED_GREY}; margin-top: 4px; }}
+        .saarthi-alert-title {{ font-size: 12.5px; font-weight: 700; color: {NAVY} !important; -webkit-text-fill-color: {NAVY} !important; }}
+        .saarthi-alert-meta {{ display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: #475569 !important; -webkit-text-fill-color: #475569 !important; margin-top: 4px; }}
+        .saarthi-alert-meta b {{ color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important; }}
         .saarthi-cap-row {{ margin-bottom: 9px; }}
         .saarthi-cap-row:last-child {{ margin-bottom: 2px; }}
-        .saarthi-cap-head {{ display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; color: {CHARCOAL}; margin-bottom: 4px; }}
-        .saarthi-cap-track {{ height: 6px; background: {BG_GREY}; border-radius: 999px; overflow: hidden; }}
+        .saarthi-cap-head {{ display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important; margin-bottom: 4px; }}
+        .saarthi-cap-track {{ height: 6px; background: #E2E8F0; border-radius: 999px; overflow: hidden; }}
         .saarthi-cap-fill {{ height: 100%; border-radius: 999px; }}
-        .saarthi-code-badge {{ font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: {BG_GREY}; color: {NAVY}; border: 1px solid {LINE}; }}
+        .saarthi-code-badge {{ font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: #E2E8F0 !important; color: {NAVY} !important; -webkit-text-fill-color: {NAVY} !important; border: 1px solid #CBD5E1; }}
         .saarthi-cascade-chain {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 6px 0; }}
-        .saarthi-cascade-step {{ border: 1px solid #E6ECF0; border-top: 3px solid {STEEL}; border-radius: 6px; padding: 9px 11px; background: {INSET}; }}
-        .saarthi-cascade-step b {{ display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: {MUTED_GREY}; margin-bottom: 3px; }}
-        .saarthi-cascade-step div {{ font-size: 12px; font-weight: 600; color: {NAVY}; line-height: 1.35; }}
+        .saarthi-cascade-step {{ border: 1px solid #DCE4EC; border-top: 3px solid {STEEL}; border-radius: 6px; padding: 9px 11px; background: {INSET} !important; }}
+        .saarthi-cascade-step b {{ display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: #475569 !important; -webkit-text-fill-color: #475569 !important; margin-bottom: 3px; }}
+        .saarthi-cascade-step div {{ font-size: 12px; font-weight: 600; color: {NAVY} !important; -webkit-text-fill-color: {NAVY} !important; line-height: 1.35; }}
         @media (max-width: 1100px) {{ .saarthi-metrics, .saarthi-cascade-chain {{ grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }} }}
         </style>""",
         unsafe_allow_html=True)
@@ -496,9 +1234,14 @@ def command_bar(page, live):
         op_status = "STATUS: NOMINAL"
         op_col = TEAL
 
-    # `live` is only the sidebar auto-refresh toggle — not a claim that all data is live APIs.
-    conn_label = f"AUTO-REFRESH ({REFRESH_SECONDS}S) · MIXED DATA" if live else "REFRESH PAUSED · HOLD"
-    conn_col = TEAL if live else "#38BDF8"
+    # `live` is only the sidebar auto-refresh toggle. Telemetry may also exist in the DB.
+    live_api_active = data.has_live_telemetry()
+    if live:
+        conn_label = f"AUTO-REFRESH ({REFRESH_SECONDS}S) · MIXED DATA"
+        conn_col = TEAL
+    else:
+        conn_label = "REFRESH PAUSED · HOLD"
+        conn_col = TEAL if live_api_active else ORANGE
     timestamp = data.now()
 
     # Build scrolling alert ticker items from real database records
@@ -563,7 +1306,8 @@ def render_deck(layers, height, key):
     st.markdown(
         '<div class="saarthi-map-bar">'
         '<div class="saarthi-map-bar-title">GIS Situational Awareness &amp; Cascading Impact Map</div>'
-        f'<div class="saarthi-map-bar-sub">Last map update: {html.escape(data.now())} (Situational Data)</div>'
+        f'<div class="saarthi-map-bar-sub">Last map update: {html.escape(data.now())} '
+        f'({"Live API / CAP XML" if data.has_live_telemetry() else "Situational Data"})</div>'
         '</div>',
         unsafe_allow_html=True)
     st.pydeck_chart(pdk.Deck(layers=layers,
@@ -601,7 +1345,7 @@ def _place_labels(frame, text_column, offset):
 
 
 def draw_map(layers, height=540, key="map", extra_layers=None):  # prominent GIS map with switchable layers
-    choices = ["Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments"]  # every layer
+    choices = ["Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments", "Rescue tasks"]
     for name in extra_layers or ():
         if name not in choices:
             choices.append(name)
@@ -677,24 +1421,25 @@ def draw_map(layers, height=540, key="map", extra_layers=None):  # prominent GIS
                                          get_line_color=[16, 37, 54], stroked=True, filled=True, line_width_min_pixels=1.5,
                                          get_radius=6.5, radius_units=_PIXELS, pickable=True))
         legend.append((ORANGE, "Relief Shipment In Transit"))
-    if "Rescue tasks" in shown:  # volunteer page only; Situation Overview does not request this layer
-        tasks = data.rescue_task_markers()
-        if tasks:
-            frame = df(tasks)
-            frame["color"] = frame.apply(
-                lambda row: [100, 116, 139] if row["status"] == "COMPLETED" else LEVEL_RGB.get(row["priority"], LEVEL_RGB["Moderate"]),
-                axis=1)
-            frame["label"] = frame.apply(
-                lambda row: (f"Rescue #{row['id']} {row['title']}: {row['zone']}, {row['priority']}, "
-                             f"{row['people']} people, {row['status']}"),
-                axis=1)
-            deck_layers.append(pdk.Layer(
-                "ScatterplotLayer", frame, get_position="[lon, lat]", get_fill_color="color",
-                get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=9,
-                radius_units=_PIXELS, line_width_min_pixels=1.5, pickable=True))
-        for name in ("Critical", "High", "Moderate", "Low"):
-            legend.append((LEVEL_HEX[name], f"Rescue {name.lower()}"))
-        legend.append((MUTED_GREY, "Rescue completed"))
+    if "Rescue tasks" in shown:
+        data.ensure_telemetry_schema()
+        rt_rows = data.read("SELECT * FROM rescue_tasks WHERE status != 'COMPLETED'")
+        if len(rt_rows):
+            rt = df(rt_rows)
+            rt["color"] = rt["priority"].map(lambda p: LEVEL_RGB.get(p, [231, 71, 71]))
+            rt["label"] = (
+                "Rescue task #" + rt["id"].astype(str) + " " + rt["title"] + " (" + rt["zone"] + ", "
+                + rt["priority"] + "): " + rt["people"].astype(str) + " people [" + rt["status"] + "]"
+            )
+            deck_layers.append(pdk.Layer("ScatterplotLayer", rt, get_position="[lon, lat]", get_fill_color="color",
+                                         get_line_color=[16, 37, 54], filled=True, stroked=True, get_radius=8,
+                                         radius_units=_PIXELS, line_width_min_pixels=2, pickable=True))
+        legend.extend((
+            (RED, "Rescue critical"),
+            (ORANGE, "Rescue high"),
+            (YELLOW, "Rescue moderate"),
+            (BLUE, "Rescue low"),
+        ))
     if "Earthquakes" in shown:  # USGS live markers; Overview opts in via extra_layers only
         try:
             quakes = live_feeds.earthquake_markers()
@@ -861,37 +1606,72 @@ def page_overview():  # PAGE 1: Unified Command-Centre Home Screen
                     f'<span><b>Team:</b> SEOC Broadcast Queue</span>'
                     f'</div></div>'
                 )
-            # Also surface top severity zones, enriched with Open-Meteo when reachable.
+            # Severity zones: prefer stored telemetry; otherwise read-only Open-Meteo.
+            telem_by_zone = data.latest_zone_telemetry()
             for z in sev[:4]:
                 lvl = z["level"]
                 cls_lvl = lvl.lower()
+                team_assigned = next(
+                    (i.get("claimed_by") for i in incidents if i["zone"] == z["name"] and i.get("claimed_by")),
+                    "District Response Unit" if z["open_requests"] else "Standby Monitoring",
+                )
                 weather_bits = [
                     f'<span><b>Location:</b> {html.escape(z["name"])}</span>',
                     f'<span><b>Prob:</b> {float(z["probability"]):.0%}</span>',
                 ]
                 source_line = ""
-                try:
-                    wx = live_feeds.fetch_open_meteo(z["lat"], z["lon"], zone_name=z["name"])
-                    if wx.get("current_temp_c") is not None:
-                        weather_bits.append(f'<span><b>Temp:</b> {float(wx["current_temp_c"]):.1f} °C</span>')
-                    if wx.get("current_gusts") is not None:
+                zt = telem_by_zone.get(z["name"], {})
+                has_stored_wx = any(
+                    zt.get(key) is not None
+                    for key in ("temp_c", "gusts_kmh", "wind_kmh", "precip_mm", "pressure_hpa")
+                )
+                if has_stored_wx:
+                    if zt.get("temp_c") is not None:
+                        weather_bits.append(f'<span><b>Temp:</b> {float(zt["temp_c"]):.1f} °C</span>')
+                    if zt.get("gusts_kmh") is not None:
                         weather_bits.append(
-                            f'<span><b>Gusts:</b> {float(wx["current_gusts"]):.1f} km/h</span>')
-                    elif wx.get("current_wind") is not None:
+                            f'<span><b>Gusts:</b> {float(zt["gusts_kmh"]):.1f} km/h</span>')
+                    elif zt.get("wind_kmh") is not None:
                         weather_bits.append(
-                            f'<span><b>Wind:</b> {float(wx["current_wind"]):.1f} km/h</span>')
-                    if wx.get("current_precip_mm") is not None:
-                        weather_bits.append(f'<span><b>Rain:</b> {float(wx["current_precip_mm"]):.1f} mm</span>')
-                    if wx.get("current_pressure_hpa") is not None:
+                            f'<span><b>Wind:</b> {float(zt["wind_kmh"]):.1f} km/h</span>')
+                    if zt.get("precip_mm") is not None:
+                        weather_bits.append(f'<span><b>Rain:</b> {float(zt["precip_mm"]):.1f} mm</span>')
+                    if zt.get("pressure_hpa") is not None:
                         weather_bits.append(
-                            f'<span><b>Pressure:</b> {float(wx["current_pressure_hpa"]):.0f} hPa</span>')
-                    source_line = (
-                        f'<div class="saarthi-alert-meta" style="margin-top:2px;">'
-                        f'<span>Source: {html.escape(str(wx.get("source") or "Open-Meteo Live API"))}</span>'
-                        f'</div>'
-                    )
-                except live_feeds.FeedError:
-                    weather_bits.append(f'<span><b>Open SOS:</b> {z["open_requests"]}</span>')
+                            f'<span><b>Pressure:</b> {float(zt["pressure_hpa"]):.0f} hPa</span>')
+                    if zt.get("source"):
+                        source_line = (
+                            f'<div class="saarthi-alert-meta" style="margin-top:2px;">'
+                            f'<span>Source: {html.escape(str(zt["source"]))}</span>'
+                            f'</div>'
+                        )
+                else:
+                    try:
+                        wx = live_feeds.fetch_open_meteo(z["lat"], z["lon"], zone_name=z["name"])
+                        if wx.get("current_temp_c") is not None:
+                            weather_bits.append(
+                                f'<span><b>Temp:</b> {float(wx["current_temp_c"]):.1f} °C</span>')
+                        if wx.get("current_gusts") is not None:
+                            weather_bits.append(
+                                f'<span><b>Gusts:</b> {float(wx["current_gusts"]):.1f} km/h</span>')
+                        elif wx.get("current_wind") is not None:
+                            weather_bits.append(
+                                f'<span><b>Wind:</b> {float(wx["current_wind"]):.1f} km/h</span>')
+                        if wx.get("current_precip_mm") is not None:
+                            weather_bits.append(
+                                f'<span><b>Rain:</b> {float(wx["current_precip_mm"]):.1f} mm</span>')
+                        if wx.get("current_pressure_hpa") is not None:
+                            weather_bits.append(
+                                f'<span><b>Pressure:</b> {float(wx["current_pressure_hpa"]):.0f} hPa</span>')
+                        source_line = (
+                            f'<div class="saarthi-alert-meta" style="margin-top:2px;">'
+                            f'<span>Source: {html.escape(str(wx.get("source") or "Open-Meteo Live API"))}</span>'
+                            f'</div>'
+                        )
+                    except live_feeds.FeedError:
+                        pass
+                weather_bits.append(f'<span><b>Open SOS:</b> {z["open_requests"]}</span>')
+                weather_bits.append(f'<span><b>Assigned:</b> {html.escape(str(team_assigned))}</span>')
                 score_pill = status_pill(f"{lvl} · {z['score']}", cls_lvl)
                 alert_cards.append(
                     f'<div class="saarthi-alert-card {cls_lvl}">'
@@ -1040,13 +1820,13 @@ def page_alerts():  # PAGE 2: early warnings
         f"""
         <style>
 
-        .saarthi-warn-red {{ color: {LEVEL_HEX["Critical"]}; font-weight: 600; }}
-        .saarthi-warn-orange {{ color: {LEVEL_HEX["High"]}; font-weight: 600; }}
-        .saarthi-warn-yellow {{ color: {LEVEL_HEX["Moderate"]}; font-weight: 600; }}
-        .saarthi-sms-queued {{ color: {WARNING}; font-weight: 600; }}
-        .saarthi-sms-acknowledged {{ color: {MUTED}; font-weight: 600; }}
-        .saarthi-sms-sent {{ color: {LEVEL_HEX["Low"]}; font-weight: 600; }}
-        .saarthi-impact {{ color: {WARNING}; font-weight: 600; }}
+        .saarthi-warn-red {{ color: #C81E1E !important; -webkit-text-fill-color: #C81E1E !important; background: #FEF2F2 !important; font-weight: 700 !important; }}
+        .saarthi-warn-orange {{ color: #B45309 !important; -webkit-text-fill-color: #B45309 !important; background: #FFFBEB !important; font-weight: 700 !important; }}
+        .saarthi-warn-yellow {{ color: #92400E !important; -webkit-text-fill-color: #92400E !important; background: #FEFCE8 !important; font-weight: 700 !important; }}
+        .saarthi-sms-queued {{ color: #B45309 !important; -webkit-text-fill-color: #B45309 !important; background: #FFFBEB !important; font-weight: 700 !important; }}
+        .saarthi-sms-acknowledged {{ color: #1D4ED8 !important; -webkit-text-fill-color: #1D4ED8 !important; background: #EFF6FF !important; font-weight: 700 !important; }}
+        .saarthi-sms-sent {{ color: #15803D !important; -webkit-text-fill-color: #15803D !important; background: #ECFDF5 !important; font-weight: 700 !important; }}
+        .saarthi-impact {{ color: #C81E1E !important; -webkit-text-fill-color: #C81E1E !important; background: #FEF2F2 !important; font-weight: 700 !important; }}
         </style>
         """,
         unsafe_allow_html=True)
@@ -1057,8 +1837,8 @@ def page_alerts():  # PAGE 2: early warnings
         return value
 
     def alert_table(frame):
-        columns = ("id", "created_at", "zone", "disaster_type", "severity", "time_to_impact", "radius_km", "sms_status")
-        headers = {"sms_status": "Status"}
+        columns = ("id", "created_at", "zone", "disaster_type", "severity", "time_to_impact", "radius_km", "source", "cap_headline", "sms_status")
+        headers = {"sms_status": "Status", "source": "Feed Source", "cap_headline": "CAP XML Headline / Detail"}
         severity_class = {"Red": "saarthi-warn-red", "Orange": "saarthi-warn-orange", "Yellow": "saarthi-warn-yellow"}
         sms_class = {"QUEUED": "saarthi-sms-queued", "ACKNOWLEDGED": "saarthi-sms-acknowledged",
                      "SENT": "saarthi-sms-sent"}
@@ -1146,6 +1926,16 @@ def page_alerts():  # PAGE 2: early warnings
                 radius = st.slider("Alert radius (km)", 5, 100, 30)  # radius
                 if st.form_submit_button("Queue alert", type="primary"):  # pressed
                     act(data.add_alert, zone, dtype, sev, eta, radius, ok="Alert saved as queued. No SMS was sent.")  # save
+            st.caption("Live CAP 1.2 XML & RSS ingestion (NDMA SACHET Maharashtra/India feeds with ETag caching & GDACS XML):")
+            cap_c1, cap_c2 = st.columns(2)
+            if cap_c1.button("Sync NDMA SACHET CAP XML", key="btn_sachet_cap", use_container_width=True):
+                res = data.sync_sachet_cap_xml()
+                st.toast(res["message"])
+                st.rerun()
+            if cap_c2.button("Sync GDACS Alert XML", key="btn_gdacs_xml", use_container_width=True):
+                res = data.sync_gdacs_xml()
+                st.toast(res["message"])
+                st.rerun()
     with st.container(border=True):
         st.subheader("Recorded risk readings")
         st.caption("Each row is a stored reading. IMD (demo) is the existing demo history. "
@@ -1161,17 +1951,35 @@ def page_alerts():  # PAGE 2: early warnings
                 if st.form_submit_button("Record reading"):
                     act(data.add_risk_reading, risk_zone, risk_type, float(risk_probability),
                         ok="Risk reading recorded. No alert was queued.")
+            st.caption("Live meteorological telemetry (Open-Meteo API & IMD district coordinates):")
+            if st.button("Sync Open-Meteo Live Telemetry (All 7 Zones)", key="btn_open_meteo_risk", type="primary", use_container_width=True):
+                res = data.sync_open_meteo_risk()
+                st.toast(res["message"])
+                st.rerun()
         with history:
-            readings = data.read("SELECT timestamp, zone, disaster_type, probability, source FROM risk_logs "
-                                 "ORDER BY id DESC LIMIT 20")
+            readings = data.read(
+                "SELECT timestamp, zone, disaster_type, probability, temp_c, gusts_kmh, precip_mm, pressure_hpa, source "
+                "FROM risk_logs ORDER BY id DESC LIMIT 20"
+            )
             if readings:
-                columns = ("timestamp", "zone", "disaster_type", "probability", "source")
-                head = "".join(f"<th>{html.escape(name)}</th>" for name in columns)
+                columns = ("timestamp", "zone", "disaster_type", "probability", "temp_c", "gusts_kmh", "precip_mm", "pressure_hpa", "source")
+                col_headers = {
+                    "temp_c": "temp (°C)",
+                    "gusts_kmh": "wind gusts (km/h)",
+                    "precip_mm": "rainfall (mm)",
+                    "pressure_hpa": "pressure (hPa)",
+                }
+                head = "".join(f"<th>{html.escape(col_headers.get(name, name))}</th>" for name in columns)
                 body = []
                 for row in readings:
                     cells = []
                     for key in columns:
-                        shown = alert_cell(row.get(key))
+                        raw_val = row.get(key)
+                        if raw_val is not None and raw_val != "" and key in ("temp_c", "gusts_kmh", "precip_mm", "pressure_hpa"):
+                            fmt_map = {"temp_c": "{:.1f} °C", "gusts_kmh": "{:.1f} km/h", "precip_mm": "{:.2f} mm", "pressure_hpa": "{:.1f} hPa"}
+                            shown = fmt_map[key].format(float(raw_val))
+                        else:
+                            shown = alert_cell(raw_val)
                         cells.append(f"<td>{html.escape(str(shown))}</td>")
                     body.append("<tr>" + "".join(cells) + "</tr>")
                 st.markdown(
@@ -1181,12 +1989,21 @@ def page_alerts():  # PAGE 2: early warnings
                     unsafe_allow_html=True)
             else:
                 st.caption("No recorded risk readings.")
-
-    # Live official / open feeds. Read-only: nothing here writes alerts, risk_logs, or the plan.
     with st.container(border=True):
-        page_header("Live official feeds",
-                    "Direct XML/API reads for situational awareness. These panels do not queue alerts, "
-                    "change beds, or replan allocation.")
+        st.subheader("Live CAP 1.2 & Multi-Hazard XML Feed Stream (NDMA SACHET & GDACS)")
+        st.caption("Raw Common Alerting Protocol (CAP 1.2) and RSS XML advisories fetched from NDMA SACHET and UN/EC GDACS with HTTP ETag caching.")
+        cap_logs = data.read(
+            "SELECT fetched_at, feed_source, identifier, sender, event, severity, area_desc, matched_zone, headline, etag_status "
+            "FROM cap_feed_logs ORDER BY id DESC LIMIT 25"
+        )
+        if cap_logs:
+            render_df_table(df(cap_logs), hide_index=True)
+        else:
+            st.caption(
+                "No CAP XML advisories fetched yet. Click 'Sync NDMA SACHET CAP XML' or "
+                "'Sync GDACS Alert XML' above to pull live XML feeds."
+            )
+        st.caption("Read-only live feed inspectors (do not write alerts, risk_logs, or the plan).")
         keys = live_feeds.key_status()
         st.caption(
             f"Keys configured — IMD API: {'yes' if keys['imd_api_key'] else 'no'} · "
@@ -1353,10 +2170,10 @@ def page_severity():  # PAGE 3: which area is worst
         f"""
         <style>
 
-        .saarthi-level-critical {{ color: {LEVEL_HEX["Critical"]}; font-weight: 600; }}
-        .saarthi-level-high {{ color: {LEVEL_HEX["High"]}; font-weight: 600; }}
-        .saarthi-level-moderate {{ color: {LEVEL_HEX["Moderate"]}; font-weight: 600; }}
-        .saarthi-level-low {{ color: {LEVEL_HEX["Low"]}; font-weight: 600; }}
+        .saarthi-level-critical {{ color: #C81E1E !important; -webkit-text-fill-color: #C81E1E !important; background: #FEF2F2 !important; font-weight: 700 !important; }}
+        .saarthi-level-high {{ color: #B45309 !important; -webkit-text-fill-color: #B45309 !important; background: #FFFBEB !important; font-weight: 700 !important; }}
+        .saarthi-level-moderate {{ color: #92400E !important; -webkit-text-fill-color: #92400E !important; background: #FEFCE8 !important; font-weight: 700 !important; }}
+        .saarthi-level-low {{ color: #1D4ED8 !important; -webkit-text-fill-color: #1D4ED8 !important; background: #EFF6FF !important; font-weight: 700 !important; }}
         </style>
         """,
         unsafe_allow_html=True)
@@ -1397,15 +2214,36 @@ def page_severity():  # PAGE 3: which area is worst
         with st.container(border=True):
             st.subheader("Recorded inputs and derived level")
             if len(sev):
-                columns = ("name", "level", "score", "disaster_type", "probability", "source", "vulnerability",
-                           "population", "open_requests")
+                columns = (
+                    "name", "level", "score", "disaster_type", "probability",
+                    "temp_c", "wind_gusts", "rainfall_mm", "pressure_hpa",
+                    "source", "vulnerability", "population", "open_requests",
+                )
+                sev_headers = {
+                    "temp_c": "temp (°C)",
+                    "wind_gusts": "wind gusts",
+                    "rainfall_mm": "rainfall",
+                    "pressure_hpa": "pressure",
+                }
                 level_class = {"Critical": "saarthi-level-critical", "High": "saarthi-level-high",
                                "Moderate": "saarthi-level-moderate", "Low": "saarthi-level-low"}
-                sources = {row["zone"]: row["source"] for row in data.read(
-                    """SELECT zone, source FROM risk_logs
-                       WHERE id IN (SELECT MAX(id) FROM risk_logs GROUP BY zone)""")}
-                sev["source"] = sev["name"].map(lambda name: sources.get(name) if sources.get(name) else "not available")
-                head = "".join(f"<th>{html.escape(name)}</th>" for name in columns)
+                telem = data.latest_zone_telemetry()
+                sev["temp_c"] = sev["name"].map(
+                    lambda n: f"{float(telem[n]['temp_c']):.1f} °C" if n in telem and telem[n].get("temp_c") is not None else "not available"
+                )
+                sev["wind_gusts"] = sev["name"].map(
+                    lambda n: f"{float(telem[n]['gusts_kmh']):.1f} km/h" if n in telem and telem[n].get("gusts_kmh") is not None else "not available"
+                )
+                sev["rainfall_mm"] = sev["name"].map(
+                    lambda n: f"{float(telem[n]['precip_mm']):.2f} mm" if n in telem and telem[n].get("precip_mm") is not None else "not available"
+                )
+                sev["pressure_hpa"] = sev["name"].map(
+                    lambda n: f"{float(telem[n]['pressure_hpa']):.1f} hPa" if n in telem and telem[n].get("pressure_hpa") is not None else "not available"
+                )
+                sev["source"] = sev["name"].map(
+                    lambda n: telem[n]["source"] if n in telem and telem[n].get("source") else "not available"
+                )
+                head = "".join(f"<th>{html.escape(sev_headers.get(name, name))}</th>" for name in columns)
                 body = []
                 for _, row in sev.iterrows():
                     cells = []
@@ -1594,9 +2432,9 @@ def page_network():  # PAGE 5: roads, hospitals, stock (every change is an event
         f"""
         <style>
 
-        .saarthi-road-open {{ color: #6b7280; font-weight: 600; }}
-        .saarthi-road-slow {{ color: {LEVEL_HEX["High"]}; font-weight: 600; }}
-        .saarthi-road-blocked {{ color: {LEVEL_HEX["Critical"]}; font-weight: 600; }}
+        .saarthi-road-open {{ color: #15803D !important; -webkit-text-fill-color: #15803D !important; background: #ECFDF5 !important; font-weight: 700 !important; }}
+        .saarthi-road-slow {{ color: #B45309 !important; -webkit-text-fill-color: #B45309 !important; background: #FFFBEB !important; font-weight: 700 !important; }}
+        .saarthi-road-blocked {{ color: #C81E1E !important; -webkit-text-fill-color: #C81E1E !important; background: #FEF2F2 !important; font-weight: 700 !important; }}
         </style>
         """,
         unsafe_allow_html=True)
@@ -1659,6 +2497,10 @@ def page_network():  # PAGE 5: roads, hospitals, stock (every change is an event
                     status = st.selectbox("Condition", ["OPEN", "SLOW", "BLOCKED"])  # choose condition
                     if st.form_submit_button("Update road", type="primary"):  # pressed
                         act(data.set_road, rid.split(":")[0], status, ok="Road updated, plan recalculated")  # event
+                if st.button("Sync Live Corridor Travel Times (OSRM / ORS API)", key="btn_sync_roads_api", use_container_width=True):
+                    res = data.sync_live_roads_osrm()
+                    st.toast(res["message"])
+                    st.rerun()
             else:
                 st.caption("No recorded roads.")
     with st.container(border=True):
@@ -1747,9 +2589,9 @@ def page_tracking():  # PAGE 6: shipments + tamper check
         f"""
         <style>
 
-        .saarthi-ship-allocated {{ color: {WARNING}; font-weight: 600; }}
-        .saarthi-ship-moving {{ color: {LEVEL_HEX["High"]}; font-weight: 600; }}
-        .saarthi-ship-done {{ color: {LEVEL_HEX["Low"]}; font-weight: 600; }}
+        .saarthi-ship-allocated {{ color: #92400E !important; -webkit-text-fill-color: #92400E !important; background: #FEFCE8 !important; font-weight: 700 !important; }}
+        .saarthi-ship-moving {{ color: #B45309 !important; -webkit-text-fill-color: #B45309 !important; background: #FFFBEB !important; font-weight: 700 !important; }}
+        .saarthi-ship-done {{ color: #15803D !important; -webkit-text-fill-color: #15803D !important; background: #ECFDF5 !important; font-weight: 700 !important; }}
         </style>
         """,
         unsafe_allow_html=True)
@@ -1827,15 +2669,16 @@ def page_tracking():  # PAGE 6: shipments + tamper check
             for k, step in enumerate(flow):  # draw the steps
                 label = step.replace("_", " ").title()
                 if k == pos:
-                    colour = {"saarthi-ship-moving": LEVEL_HEX["High"], "saarthi-ship-done": LEVEL_HEX["Low"],
-                              "saarthi-ship-allocated": WARNING}.get(status_class(row.get("status")), TEXT)
-                    weight = "600"
+                    colour = {"saarthi-ship-moving": "#B45309", "saarthi-ship-done": "#15803D",
+                              "saarthi-ship-allocated": "#92400E"}.get(status_class(row.get("status")), NAVY)
+                    bg_chip = "#FFFBEB" if status_class(row.get("status")) != "saarthi-ship-done" else "#ECFDF5"
+                    cols[k].markdown(
+                        f'<div style="color:{colour};-webkit-text-fill-color:{colour};background:{bg_chip};border:1px solid {colour};border-radius:4px;padding:3px 6px;text-align:center;font-weight:700;font-size:11px;">{html.escape(label)}</div>',
+                        unsafe_allow_html=True)
                 else:
-                    colour = MUTED
-                    weight = "400"
-                cols[k].markdown(
-                    f'<div style="color:{colour};font-weight:{weight};">{html.escape(label)}</div>',
-                    unsafe_allow_html=True)
+                    cols[k].markdown(
+                        f'<div style="color:#475569;-webkit-text-fill-color:#475569;background:#F8FAFC;border:1px solid #CBD5E1;border-radius:4px;padding:3px 6px;text-align:center;font-weight:500;font-size:11px;">{html.escape(label)}</div>',
+                        unsafe_allow_html=True)
             if pos < len(flow) - 1 and st.button(f"Mark as {flow[pos + 1].replace('_', ' ').title()}", type="primary"):  # next step
                 act(data.advance_shipment, sid, ok="Shipment updated")
     with st.expander("Full ledger (every status change, chained by SHA-256 fingerprint)"):  # click to open
@@ -1863,9 +2706,9 @@ def page_requests():  # PAGE 7: SOS from the field
         f"""
         <style>
 
-        .saarthi-status-open {{ color: {LEVEL_HEX["Critical"]}; font-weight: 600; }}
-        .saarthi-status-transit {{ color: {LEVEL_HEX["High"]}; font-weight: 600; }}
-        .saarthi-status-resolved {{ color: {LEVEL_HEX["Low"]}; font-weight: 600; }}
+        .saarthi-status-open {{ color: #C81E1E !important; -webkit-text-fill-color: #C81E1E !important; background: #FEF2F2 !important; font-weight: 700 !important; }}
+        .saarthi-status-transit {{ color: #B45309 !important; -webkit-text-fill-color: #B45309 !important; background: #FFFBEB !important; font-weight: 700 !important; }}
+        .saarthi-status-resolved {{ color: #15803D !important; -webkit-text-fill-color: #15803D !important; background: #ECFDF5 !important; font-weight: 700 !important; }}
         </style>
         """,
         unsafe_allow_html=True)
@@ -1962,225 +2805,174 @@ def page_requests():  # PAGE 7: SOS from the field
             ui_info("No field requests yet.")
 
 
-def _volunteer_table(source, columns, status_key="status"):
-    status_class = {
-        "PENDING": "saarthi-rescue-pending",
-        "ASSIGNED": "saarthi-rescue-assigned",
-        "DISPATCHED": "saarthi-rescue-dispatched",
-        "IN_PROGRESS": "saarthi-rescue-progress",
-        "RESCUED": "saarthi-rescue-rescued",
-        "COMPLETED": "saarthi-rescue-completed",
-        "AVAILABLE": "saarthi-team-available",
-        "DEPLOYED": "saarthi-team-deployed",
-    }
-    head = "".join(f"<th>{html.escape(name)}</th>" for name in columns)
-    body = []
-    for row in source:
-        cells = []
-        for key in columns:
-            shown = row.get(key)
-            text = "not available" if shown is None or shown == "" else shown
-            escaped = html.escape(str(text))
-            if key == status_key:
-                cells.append(f'<td class="{status_class.get(row.get(key), "")}">{escaped}</td>')
-            else:
-                cells.append(f"<td>{escaped}</td>")
-        body.append("<tr>" + "".join(cells) + "</tr>")
-    st.markdown(
-        '<div class="saarthi-table-container">'
-        f'<table class="saarthi-requests"><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table>'
-        "</div>",
-        unsafe_allow_html=True)
-
-
-def page_volunteers():
-    """NGO teams and rescue tasks. Assignment and dispatch stay separate operator actions."""
+def page_volunteers():  # Volunteers & Rescue Tasks coordination module
+    """Register NGO teams, record rescue tasks, then assign and dispatch them as separate steps."""
     page_fit_styles()
-    st.markdown(
-        f"""
-        <style>
-        .saarthi-rescue-pending {{ color: {MUTED_GREY}; font-weight: 600; }}
-        .saarthi-rescue-assigned, .saarthi-rescue-dispatched, .saarthi-team-deployed {{ color: {ORANGE}; font-weight: 600; }}
-        .saarthi-rescue-progress {{ color: {NAVY}; font-weight: 600; }}
-        .saarthi-rescue-rescued, .saarthi-rescue-completed, .saarthi-team-available {{ color: {TEAL}; font-weight: 600; }}
-        </style>
-        """,
-        unsafe_allow_html=True)
+    data.ensure_telemetry_schema()
     with st.container(border=True):
-        page_header("Volunteers",
-                    "Register NGO teams, record rescue tasks, then assign and dispatch them as separate steps.")
-        safety_notice("Assignment does not dispatch a team. Dispatch and rescue progress are operator actions. "
-                      "SOS incidents are left unchanged.")
-    counts = data.volunteer_dashboard()
+        page_header(
+            "Volunteers",
+            "Register NGO teams, record rescue tasks, then assign and dispatch them as separate steps.",
+        )
+        safety_notice(
+            "Assignment does not dispatch a team. Dispatch and rescue progress are operator actions. SOS incidents are left unchanged."
+        )
+
+    teams = data.read("SELECT id, team_name, team_lead, head_role, home_zone, focus_area, capacity, status, registered_at FROM volunteer_teams ORDER BY id DESC")
+    tasks = data.read("SELECT id, title, zone, priority, people, location_note, status, assigned_team_name AS assigned_team, created_at FROM rescue_tasks ORDER BY id DESC")
+    assignments = data.read("SELECT id, task_id, task_title, zone, priority, people, team_id, team_name, team_lead, volunteers, status, assigned_at, updated_at FROM volunteer_assignments ORDER BY id DESC")
+    history = data.read("SELECT id, timestamp, assignment_id, task_id, task_title, team_name, status, note FROM volunteer_status_history ORDER BY id DESC")
+
+    total_volunteers = sum(int(t.get("capacity") or 0) for t in teams)
+    available_volunteers = sum(int(t.get("capacity") or 0) for t in teams if t.get("status") == "AVAILABLE")
+    active_tasks = sum(1 for tk in tasks if tk.get("status") != "COMPLETED")
+    teams_deployed = sum(1 for t in teams if t.get("status") == "DEPLOYED")
+    completed_rescues = sum(1 for tk in tasks if tk.get("status") == "COMPLETED")
+
     metric_tiles((
-        ("NGO teams", counts["teams"], STEEL),
-        ("Total volunteers", counts["volunteers"], STEEL),
-        ("Available volunteers", counts["available"], TEAL),
-        ("Active rescue tasks", counts["active_tasks"], ORANGE),
-        ("Teams deployed", counts["deployed"], ORANGE),
-        ("Completed rescues", counts["completed"], TEAL),
+        ("NGO TEAMS", len(teams), TEXT),
+        ("TOTAL VOLUNTEERS", total_volunteers, TEXT),
+        ("AVAILABLE VOLUNTEERS", available_volunteers, TEAL),
+        ("ACTIVE RESCUE TASKS", active_tasks, WARNING),
+        ("TEAMS DEPLOYED", teams_deployed, WARNING),
+        ("COMPLETED RESCUES", completed_rescues, TEAL),
     ))
-    teams = data.list_ngo_teams()
-    tasks = data.list_rescue_tasks()
-    zones = [z[0] for z in data.demo.ZONES]
-    team_rows = [{
-        "id": row["id"],
-        "name": row["name"],
-        "lead": row["lead_name"] or "not available",
-        "head role": row["lead_role"],
-        "home zone": row["home_zone"],
-        "focus": row["focus"] or "not available",
-        "capacity": row["capacity"],
-        "available": row["available"],
-        "status": row["status"],
-    } for row in teams]
-    task_rows = [{
-        "id": row["id"],
-        "title": row["title"],
-        "location": f"{row['zone']} ({float(row['lat']):.4f}, {float(row['lon']):.4f})",
-        "zone": row["zone"],
-        "priority": row["priority"],
-        "people": row["people"],
-        "status": row["status"],
-    } for row in tasks]
-    listing, roster = st.columns([1.15, 1])
-    with listing:
+
+    teams_col, tasks_col = st.columns(2)
+    with teams_col:
         with st.container(border=True):
             st.subheader("NGO teams")
-            if team_rows:
-                _volunteer_table(team_rows, ("id", "name", "lead", "head role", "home zone", "focus",
-                                             "capacity", "available", "status"))
+            if teams:
+                render_df_table(df(teams), hide_index=True)
             else:
                 ui_info("No NGO teams registered yet.")
-    with roster:
+    with tasks_col:
         with st.container(border=True):
             st.subheader("Rescue tasks")
-            if task_rows:
-                _volunteer_table(task_rows, ("id", "title", "location", "zone", "priority", "people", "status"))
+            if tasks:
+                render_df_table(df(tasks), hide_index=True)
             else:
                 ui_info("No rescue tasks recorded yet.")
+
     with st.container(border=True):
         st.caption("Coastal Maharashtra map, with rescue-task markers added.")
-        draw_map(["Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments", "Rescue tasks"],
-                 height=540, key="vol_map", extra_layers=("Rescue tasks",))
-    register_col, task_col, assign_col = st.columns(3)
-    with register_col:
+        draw_map(
+            ["Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments", "Rescue tasks"],
+            height=520,
+            key="vol_map",
+        )
+
+    reg_col, task_col, assign_col = st.columns(3)
+    with reg_col:
         with st.container(border=True):
             st.subheader("Register a team")
-            with st.form("vol_register", clear_on_submit=True):
-                name = st.text_input("NGO / team name")
-                lead = st.text_input("Team lead")
-                role = st.text_input("Head role", "Team lead")
-                home = st.selectbox("Home zone", zones)
-                focus = st.text_input("Focus area", "Rescue")
-                capacity = st.number_input("Volunteer capacity", 1, 5000, 12)
-                if st.form_submit_button("Register team", type="primary"):
-                    act(data.register_ngo_team, name, lead, role, home, focus, int(capacity),
-                        ok=f"{name} registered")
+            with st.form("vol_register_team", clear_on_submit=True):
+                team_name = st.text_input("NGO / team name", "")
+                team_lead = st.text_input("Team lead", "")
+                head_role = st.text_input("Head role", "Team lead")
+                home_zone = st.selectbox("Home zone", [z[0] for z in data.demo.ZONES])
+                focus_area = st.text_input("Focus area", "Rescue")
+                capacity = st.number_input("Volunteer capacity", min_value=1, max_value=5000, value=12, step=1)
+                if st.form_submit_button("Register team"):
+                    act(
+                        data.register_volunteer_team,
+                        team_name,
+                        team_lead,
+                        head_role,
+                        home_zone,
+                        focus_area,
+                        int(capacity),
+                        ok="NGO team registered",
+                    )
+
     with task_col:
         with st.container(border=True):
             st.subheader("Create a rescue task")
-            with st.form("vol_task", clear_on_submit=True):
-                title = st.text_input("Task title")
-                zone = st.selectbox("Affected zone", zones, key="vol_task_zone")
-                priority = st.selectbox("Priority", data.RESCUE_PRIORITIES)
-                people = st.number_input("People requiring assistance", 1, 5000, 20)
-                detail = st.text_input("Location note")
-                if st.form_submit_button("Create rescue task", type="primary"):
-                    act(data.create_rescue_task, title, zone, priority, int(people), detail,
-                        ok="Rescue task recorded")
+            with st.form("vol_create_task", clear_on_submit=True):
+                task_title = st.text_input("Task title", "")
+                affected_zone = st.selectbox("Affected zone", [z[0] for z in data.demo.ZONES])
+                priority = st.selectbox("Priority", ["Critical", "High", "Moderate", "Low"])
+                people_req = st.number_input("People requiring assistance", min_value=1, max_value=100000, value=20, step=1)
+                loc_note = st.text_input("Location note", "")
+                if st.form_submit_button("Create rescue task"):
+                    act(
+                        data.create_rescue_task,
+                        task_title,
+                        affected_zone,
+                        priority,
+                        int(people_req),
+                        loc_note,
+                        ok="Rescue task created",
+                    )
+
+    avail_teams = [t for t in teams if t.get("status") == "AVAILABLE"]
+    open_tasks = [tk for tk in tasks if tk.get("status") == "OPEN"]
     with assign_col:
         with st.container(border=True):
             st.subheader("Assign a team")
-            ready_teams = data.assignable_teams()
-            open_tasks = data.open_rescue_tasks()
-            if not ready_teams or not open_tasks:
+            if not avail_teams or not open_tasks:
                 ui_info("An available team and an open rescue task are both required.")
             else:
-                team_by_id = {int(row["id"]): row for row in ready_teams}
-                task_by_id = {int(row["id"]): row for row in open_tasks}
-                with st.form("vol_assign"):
-                    team_id = st.selectbox(
-                        "Available team",
-                        list(team_by_id),
-                        format_func=lambda i: (
-                            f"{team_by_id[i]['name']} · {team_by_id[i]['available']} available · "
-                            f"{team_by_id[i]['home_zone']}"))
-                    task_id = st.selectbox(
-                        "Rescue task",
-                        list(task_by_id),
-                        format_func=lambda i: (
-                            f"#{task_by_id[i]['id']} {task_by_id[i]['title']} · "
-                            f"{task_by_id[i]['zone']} · {task_by_id[i]['status']}"))
-                    requested = st.number_input("Volunteers to assign", 1, 5000, 1)
-                    if st.form_submit_button("Assign team", type="primary"):
-                        act(data.assign_rescue_team, int(task_id), int(team_id), int(requested),
-                            ok="Team assigned. Dispatch is still a separate step.")
-    dispatch_col, progress_col = st.columns(2)
-    with dispatch_col:
+                with st.form("vol_assign_team"):
+                    tk_label = st.selectbox(
+                        "Open rescue task",
+                        [f"#{tk['id']} · {tk['title']} ({tk['zone']} · {tk['priority']})" for tk in open_tasks],
+                    )
+                    tm_label = st.selectbox(
+                        "Available NGO team",
+                        [f"#{tm['id']} · {tm['team_name']} ({tm['capacity']} volunteers · {tm['home_zone']})" for tm in avail_teams],
+                    )
+                    if st.form_submit_button("Assign team"):
+                        tk_id = int(tk_label.split(" · ")[0].lstrip("#"))
+                        tm_id = int(tm_label.split(" · ")[0].lstrip("#"))
+                        act(data.assign_volunteer_team, tk_id, tm_id, ok="Team assigned (awaiting dispatch)")
+
+    waiting_dispatch = [a for a in assignments if a.get("status") == "ASSIGNED"]
+    active_dispatched = [a for a in assignments if a.get("status") in ("DISPATCHED", "IN_PROGRESS", "RESCUED")]
+    disp_col, prog_col = st.columns(2)
+    with disp_col:
         with st.container(border=True):
             st.subheader("Dispatch")
-            waiting = data.dispatchable_assignments()
-            if not waiting:
+            if not waiting_dispatch:
                 ui_info("No assigned team is waiting for dispatch.")
             else:
-                waiting_by_id = {int(row["id"]): row for row in waiting}
-                with st.form("vol_dispatch"):
-                    chosen_id = st.selectbox(
+                with st.form("vol_dispatch_form"):
+                    disp_label = st.selectbox(
                         "Assigned team",
-                        list(waiting_by_id),
-                        format_func=lambda i: (
-                            f"Task #{waiting_by_id[i]['task_id']} {waiting_by_id[i]['title']} · "
-                            f"{waiting_by_id[i]['team_name']} · {waiting_by_id[i]['volunteers']} volunteers"))
-                    if st.form_submit_button("Dispatch team", type="primary"):
-                        act(data.dispatch_rescue_assignment, int(chosen_id), ok="Team dispatched")
-    with progress_col:
+                        [f"Assignment #{a['id']} · {a['team_name']} → {a['task_title']} ({a['zone']})" for a in waiting_dispatch],
+                    )
+                    if st.form_submit_button("Dispatch team"):
+                        aid = int(disp_label.split(" · ")[0].replace("Assignment #", ""))
+                        act(data.dispatch_volunteer_assignment, aid, ok="Team dispatched")
+
+    with prog_col:
         with st.container(border=True):
             st.subheader("Rescue progress")
-            moving = data.progressable_tasks()
-            if not moving:
+            if not active_dispatched:
                 ui_info("Dispatch a team before recording IN_PROGRESS, RESCUED, or COMPLETED.")
             else:
-                moving_by_id = {int(row["id"]): row for row in moving}
-                with st.form("vol_progress"):
-                    current_id = st.selectbox(
-                        "Dispatched rescue",
-                        list(moving_by_id),
-                        format_func=lambda i: (
-                            f"#{moving_by_id[i]['id']} {moving_by_id[i]['title']} · "
-                            f"{moving_by_id[i]['status']}"))
-                    later = data.next_rescue_statuses(moving_by_id[current_id]["status"])
-                    nxt = st.selectbox("Next status", later)
-                    if st.form_submit_button("Update status", type="primary"):
-                        act(data.update_rescue_progress, int(current_id), nxt, ok=f"Rescue marked {nxt}")
-    assignments = data.list_rescue_assignments()
+                with st.form("vol_progress_form"):
+                    prog_label = st.selectbox(
+                        "Active rescue assignment",
+                        [f"Assignment #{a['id']} · {a['team_name']} → {a['task_title']} [{a['status']}]" for a in active_dispatched],
+                    )
+                    next_status = st.selectbox("Progress status", ["IN_PROGRESS", "RESCUED", "COMPLETED"])
+                    prog_note = st.text_input("Progress note", "")
+                    if st.form_submit_button("Update progress"):
+                        aid = int(prog_label.split(" · ")[0].replace("Assignment #", ""))
+                        act(data.update_rescue_progress, aid, next_status, prog_note, ok=f"Recorded {next_status}")
+
     with st.container(border=True):
         st.subheader("Assignments")
         if assignments:
-            _volunteer_table([{
-                "id": row["id"],
-                "task": f"#{row['task_id']} {row['title']}",
-                "team": row["team_name"],
-                "volunteers": row["volunteers"],
-                "assigned": row["assigned_at"],
-                "dispatched": row["dispatched_at"] or "not dispatched",
-                "status": row["status"],
-            } for row in assignments],
-                ("id", "task", "team", "volunteers", "assigned", "dispatched", "status"))
+            render_df_table(df(assignments), hide_index=True)
         else:
             ui_info("No team has been assigned yet.")
         with st.expander("Status history"):
-            history = data.rescue_status_log()
             if history:
-                _volunteer_table([{
-                    "id": row["id"],
-                    "task": row["task_id"],
-                    "status": row["status"],
-                    "changed": row["changed_at"],
-                    "note": row["note"],
-                } for row in history], ("id", "task", "status", "changed", "note"))
+                render_df_table(df(history), hide_index=True)
             else:
-                st.caption("No status changes recorded.")
+                st.caption("No status transitions recorded yet.")
 
 
 def page_scenarios():  # PAGE 8: the scenario tests from our notes
@@ -2221,14 +3013,14 @@ def page_intake():  # PAGE 9: Intake and Triage agent
         f"""
         <style>
 
-        .saarthi-q-pending {{ color: {WARNING}; font-weight: 600; }}
-        .saarthi-q-approved {{ color: {MUTED}; font-weight: 600; }}
-        .saarthi-q-logged {{ color: {LEVEL_HEX["Low"]}; font-weight: 600; }}
-        .saarthi-q-rejected {{ color: {LEVEL_HEX["Critical"]}; font-weight: 600; }}
-        .saarthi-pri-critical {{ color: {LEVEL_HEX["Critical"]}; font-weight: 600; }}
-        .saarthi-pri-high {{ color: {LEVEL_HEX["High"]}; font-weight: 600; }}
-        .saarthi-pri-medium {{ color: {LEVEL_HEX["Moderate"]}; font-weight: 600; }}
-        .saarthi-pri-low {{ color: {LEVEL_HEX["Low"]}; font-weight: 600; }}
+        .saarthi-q-pending {{ color: #B45309 !important; -webkit-text-fill-color: #B45309 !important; background: #FFFBEB !important; font-weight: 700 !important; }}
+        .saarthi-q-approved {{ color: #1D4ED8 !important; -webkit-text-fill-color: #1D4ED8 !important; background: #EFF6FF !important; font-weight: 700 !important; }}
+        .saarthi-q-logged {{ color: #15803D !important; -webkit-text-fill-color: #15803D !important; background: #ECFDF5 !important; font-weight: 700 !important; }}
+        .saarthi-q-rejected {{ color: #C81E1E !important; -webkit-text-fill-color: #C81E1E !important; background: #FEF2F2 !important; font-weight: 700 !important; }}
+        .saarthi-pri-critical {{ color: #C81E1E !important; -webkit-text-fill-color: #C81E1E !important; background: #FEF2F2 !important; font-weight: 700 !important; }}
+        .saarthi-pri-high {{ color: #B45309 !important; -webkit-text-fill-color: #B45309 !important; background: #FFFBEB !important; font-weight: 700 !important; }}
+        .saarthi-pri-medium {{ color: #92400E !important; -webkit-text-fill-color: #92400E !important; background: #FEFCE8 !important; font-weight: 700 !important; }}
+        .saarthi-pri-low {{ color: #1D4ED8 !important; -webkit-text-fill-color: #1D4ED8 !important; background: #EFF6FF !important; font-weight: 700 !important; }}
         </style>
         """,
         unsafe_allow_html=True)
@@ -2267,14 +3059,18 @@ def page_intake():  # PAGE 9: Intake and Triage agent
         ("Rejected", len(rejected), LEVEL_HEX["Critical"] if rejected else TEXT),
     ))
     with st.container(border=True):
-        left, right = st.columns(2)
+        left, mid, right = st.columns(3)
         if left.button("Import existing SOS", type="primary"):
             added = intake_agent.import_open_sos()
             st.toast(f"Imported {len(added)} existing SOS records" if added else "Existing SOS records are already in the queue")
             st.rerun()
-        if right.button("Load labelled synthetic examples"):
+        if mid.button("Load labelled synthetic examples"):
             added = intake_agent.load_synthetic_examples()
             st.toast(f"Loaded {len(added)} synthetic examples" if added else "Synthetic examples are already loaded")
+            st.rerun()
+        if right.button("Sync live USGS & NASA feeds"):
+            res = data.sync_usgs_and_eonet_intake()
+            st.toast(res["message"])
             st.rerun()
     if reports:
         view = st.radio("Show", ["Pending", "Approved, not logged", "Logged", "Rejected", "All"], horizontal=True)
@@ -2298,7 +3094,7 @@ def page_intake():  # PAGE 9: Intake and Triage agent
             for report in visible:
                 values = {
                     "id": report["id"], "evidence": _intake_evidence(report),
-                    "record": "Synthetic demo" if report["synthetic"] else "Operator entry",
+                    "record": "Synthetic demo" if report["synthetic"] else ("Live API feed" if str(report.get("source") or "").endswith("_api") else "Operator entry"),
                     "queue": intake_agent.queue_state(report), "zone": report["zone"],
                     "classification": report["classification"], "severity": report["severity"],
                     "urgency": intake_agent.urgency_label(report["source"], report["urgency"]),
@@ -2314,6 +3110,8 @@ def page_intake():  # PAGE 9: Intake and Triage agent
                         classes.append(queue_class[shown])
                     elif key == "priority" and priority_class.get(shown):
                         classes.append(priority_class[shown])
+                    elif key in ("severity", "urgency", "validation_status") and _TABLE_STATUS_CLASSES.get(str(shown)):
+                        classes.append(_TABLE_STATUS_CLASSES[str(shown)])
                     if key in {"id", "priority_score"}:
                         classes.append("saarthi-nowrap")
                     class_attr = f' class="{" ".join(classes)}"' if classes else ""
@@ -2449,12 +3247,12 @@ def page_ripple():  # PAGE 10: read-only cascade analysis
         """
         <style>
         .saarthi-role {
-            display: inline-block; font-size: 0.72rem; letter-spacing: 0.04em; line-height: 1.3;
-            border: 1px solid var(--saarthi-line); padding: 2px 6px;
+            display: inline-block; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; line-height: 1.3;
+            border: 1px solid var(--saarthi-line); border-radius: 4px; padding: 3px 8px;
         }
-        .saarthi-role-primary { color: #E74747; border-color: #E74747; }
-        .saarthi-role-secondary { color: #E6A23C; border-color: #E6A23C; }
-        .saarthi-role-extended { color: #D9A520; border-color: #D9A520; }
+        .saarthi-role-primary { color: #C81E1E !important; -webkit-text-fill-color: #C81E1E !important; background: #FEF2F2 !important; border-color: #FECACA !important; }
+        .saarthi-role-secondary { color: #B45309 !important; -webkit-text-fill-color: #B45309 !important; background: #FFFBEB !important; border-color: #FDE68A !important; }
+        .saarthi-role-extended { color: #92400E !important; -webkit-text-fill-color: #92400E !important; background: #FEFCE8 !important; border-color: #FEF08A !important; }
         </style>
         """,
         unsafe_allow_html=True)
@@ -2697,11 +3495,11 @@ def page_whatif():  # PAGE 11: hypothetical scenarios, never written to the data
         """
         <style>
         .saarthi-source {
-            display: inline-block; font-size: 0.72rem; letter-spacing: 0.04em; line-height: 1.3;
-            border: 1px solid var(--saarthi-line); padding: 2px 6px; margin-right: 6px;
+            display: inline-block; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; line-height: 1.3;
+            border: 1px solid #CBD5E1; border-radius: 4px; padding: 3px 8px; margin-right: 6px;
         }
-        .saarthi-source-recorded { color: var(--saarthi-muted); }
-        .saarthi-source-simulated { color: #E6A23C; border-color: #E6A23C; background: #FFFBF4; }
+        .saarthi-source-recorded { color: #102536 !important; -webkit-text-fill-color: #102536 !important; background: #F1F5F9 !important; border-color: #CBD5E1 !important; }
+        .saarthi-source-simulated { color: #B45309 !important; -webkit-text-fill-color: #B45309 !important; border-color: #FDE68A !important; background: #FFFBEB !important; }
         </style>
         """,
         unsafe_allow_html=True)
@@ -3002,6 +3800,12 @@ def _whatif_map(result, spots, status_field, key):
 
 
 def sidebar_demos():  # demo buttons
+    st.sidebar.divider()  # line
+    st.sidebar.subheader("Live API & XML telemetry")
+    if st.sidebar.button("Sync all live API & XML feeds", type="primary"):
+        res = data.sync_all_live_feeds()
+        st.toast(res["summary"])
+        st.rerun()
     st.sidebar.divider()  # line
     st.sidebar.subheader("Demo controls")  # heading
     safety_notice(
@@ -3640,7 +4444,7 @@ def page_plan_challenger():  # read-only review of the stored plan + visual scen
             st.markdown(
                 f'<div class="saarthi-alert-card low">'
                 f'<div class="saarthi-alert-top"><span class="saarthi-alert-title">1. What Changed in Plan v{plan.get("version", 1)}?</span>'
-                f'{status_pill(f"{plan.get('changed', 0)} Changed", "low")}</div>'
+                f"{status_pill(str(plan.get('changed', 0)) + ' Changed', 'low')}</div>"
                 f'<div class="saarthi-alert-meta"><span>Trigger: {html.escape(str(plan.get("trigger") or "Initial baseline"))}</span>'
                 f'<span>Modified rows in this version: {len(changed_moves)}</span></div></div>',
                 unsafe_allow_html=True,
@@ -3698,11 +4502,23 @@ def page_plan_challenger():  # read-only review of the stored plan + visual scen
 # 5. MAIN: runs every time the page loads or something is clicked
 # ---------------------------------------------------------------------
 def ensure_session_db():
-    """Create one seeded database for this Streamlit session, then reuse it."""
+    """Create one seeded database for this Streamlit session, then reuse it and auto-sync live feeds on startup."""
     if "session_db_path" not in st.session_state:
         st.session_state["session_db_path"] = os.path.join(
             tempfile.gettempdir(), f"saarthi-{uuid.uuid4().hex}.db")
         data.init_db()
+        try:
+            data.sync_all_live_feeds()
+        except Exception:
+            pass
+        st.session_state["live_telemetry_autosynced"] = True
+    elif not st.session_state.get("live_telemetry_autosynced"):
+        data.ensure_telemetry_schema()
+        try:
+            data.sync_all_live_feeds()
+        except Exception:
+            pass
+        st.session_state["live_telemetry_autosynced"] = True
 
 
 ensure_session_db()
