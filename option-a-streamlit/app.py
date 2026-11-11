@@ -270,7 +270,7 @@ def metric_tiles(items):
         accent = colour if colour != TEXT else STEEL
         value_col = colour if colour in (RED, ORANGE, YELLOW, BLUE, TEAL) else CHARCOAL
         cards.append(
-            f'<div class="saarthi-metric" style="border-left: 3.5px solid {accent};">'
+            f'<div class="saarthi-metric" style="border-top: 3px solid {accent};">'
             f'<div class="saarthi-metric-label">{html.escape(str(label))}</div>'
             f'<div class="saarthi-metric-value" style="color:{value_col};">{value}</div>'
             "</div>"
@@ -377,11 +377,17 @@ def command_styles():
         [data-testid="stAlert"], [data-testid="stAlert"] > div, [data-testid="stAlertContainer"], [data-baseweb="notification"], div[role="alert"] {{ background: {WHITE} !important; background-color: {WHITE} !important; color: {CHARCOAL} !important; border: 1px solid {LINE} !important; border-left: 3.5px solid {STEEL} !important; border-radius: 6px !important; }}
         [data-testid="stAlert"] *, [data-testid="stAlertContainer"] *, [data-baseweb="notification"] *, div[role="alert"] * {{ color: {CHARCOAL} !important; background-color: transparent !important; }}
         .stApp [data-baseweb="select"] > div, .stApp [data-baseweb="input"], .stApp [data-baseweb="input"] > div, .stApp [data-baseweb="base-input"], .stApp [data-baseweb="textarea"], .stApp [data-baseweb="textarea"] > div, .stApp [data-testid="stNumberInputContainer"] {{ border-radius: 6px !important; border: 1px solid #CBD5E1 !important; background: #F8FAFC !important; background-color: #F8FAFC !important; color: {CHARCOAL} !important; }}
-        .stApp [data-baseweb="select"] div, .stApp [data-baseweb="select"] span, .stApp [data-baseweb="select"] input, .stApp [data-baseweb="input"] input, .stApp [data-baseweb="textarea"] textarea, .stApp [data-testid="stNumberInput"] input {{ background: transparent !important; background-color: transparent !important; color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important; caret-color: {NAVY} !important; }}
+        .stApp [data-baseweb="select"] > div > div, .stApp [data-baseweb="select"] input, .stApp [data-baseweb="input"] input, .stApp [data-baseweb="textarea"] textarea, .stApp [data-testid="stNumberInput"] input {{ background: transparent !important; background-color: transparent !important; color: {CHARCOAL} !important; -webkit-text-fill-color: {CHARCOAL} !important; caret-color: {NAVY} !important; }}
         .stApp [data-testid="stNumberInput"] button {{ background: #F1F5F9 !important; background-color: #F1F5F9 !important; color: {NAVY} !important; border-left: 1px solid #CBD5E1 !important; }}
         .stApp [data-baseweb="select"] svg, .stApp [data-testid="stNumberInput"] svg {{ fill: {NAVY} !important; color: {NAVY} !important; }}
-        .stApp [data-baseweb="tag"] {{ background: {STEEL} !important; background-color: {STEEL} !important; color: {WHITE} !important; border-radius: 4px !important; border: none !important; padding: 1px 7px !important; margin: 1px 2px !important; font-size: 11.5px !important; }}
-        .stApp [data-baseweb="tag"] span, .stApp [data-baseweb="tag"] svg {{ color: {WHITE} !important; fill: {WHITE} !important; background: transparent !important; }}
+        /* Map-layer chips: light pills + dark labels (avoid charcoal text on steel tags). */
+        .stApp [data-testid="stMultiSelect"] [data-baseweb="tag"],
+        .stApp [data-baseweb="tag"] {{ background: #EEF2F7 !important; background-color: #EEF2F7 !important; color: {NAVY} !important; -webkit-text-fill-color: {NAVY} !important; border-radius: 999px !important; border: 1px solid #CBD5E1 !important; padding: 2px 8px !important; margin: 2px 3px !important; font-size: 12px !important; font-weight: 600 !important; max-width: none !important; height: auto !important; min-height: 24px !important; }}
+        .stApp [data-testid="stMultiSelect"] [data-baseweb="tag"] span,
+        .stApp [data-baseweb="tag"] span {{ color: {NAVY} !important; -webkit-text-fill-color: {NAVY} !important; fill: {NAVY} !important; background: transparent !important; font-size: 12px !important; font-weight: 600 !important; opacity: 1 !important; visibility: visible !important; white-space: nowrap !important; }}
+        .stApp [data-testid="stMultiSelect"] [data-baseweb="tag"] svg,
+        .stApp [data-baseweb="tag"] svg {{ color: {MUTED_GREY} !important; fill: {MUTED_GREY} !important; opacity: 1 !important; }}
+        .stApp [data-testid="stMultiSelect"] [data-baseweb="select"] {{ min-height: 42px !important; }}
         body [data-baseweb="popover"], body [data-baseweb="popover"] > div, body [data-baseweb="menu"], body ul[role="listbox"], body li[role="option"], body [data-testid="stSelectboxVirtualDropdown"] {{ background: {WHITE} !important; background-color: {WHITE} !important; color: {CHARCOAL} !important; border-radius: 6px !important; }}
         body li[role="option"] *, body [data-baseweb="menu"] * {{ color: {CHARCOAL} !important; }}
         body li[role="option"]:hover, body li[role="option"][aria-selected="true"] {{ background: {BG_GREY} !important; background-color: {BG_GREY} !important; color: {NAVY} !important; font-weight: 600 !important; }}
@@ -490,8 +496,9 @@ def command_bar(page, live):
         op_status = "STATUS: NOMINAL"
         op_col = TEAL
 
-    conn_label = f"AUTO-REFRESH ({REFRESH_SECONDS}S) · DEMO DB" if live else "SIMULATION / DEMO DATA (HOLD)"
-    conn_col = TEAL if live else ORANGE
+    # `live` is only the sidebar auto-refresh toggle — not a claim that all data is live APIs.
+    conn_label = f"AUTO-REFRESH ({REFRESH_SECONDS}S) · MIXED DATA" if live else "REFRESH PAUSED · HOLD"
+    conn_col = TEAL if live else "#38BDF8"
     timestamp = data.now()
 
     # Build scrolling alert ticker items from real database records
@@ -556,7 +563,7 @@ def render_deck(layers, height, key):
     st.markdown(
         '<div class="saarthi-map-bar">'
         '<div class="saarthi-map-bar-title">GIS Situational Awareness &amp; Cascading Impact Map</div>'
-        f'<div class="saarthi-map-bar-sub">Last map update: {html.escape(data.now())} (Recorded DB)</div>'
+        f'<div class="saarthi-map-bar-sub">Last map update: {html.escape(data.now())} (Situational Data)</div>'
         '</div>',
         unsafe_allow_html=True)
     st.pydeck_chart(pdk.Deck(layers=layers,
@@ -598,7 +605,13 @@ def draw_map(layers, height=540, key="map", extra_layers=None):  # prominent GIS
     for name in extra_layers or ():
         if name not in choices:
             choices.append(name)
-    shown = st.multiselect("Map Layers Control (Toggle Categories)", choices, default=layers, key=key)  # operator picks which to show
+    shown = st.multiselect(
+        "Map Layers Control (Toggle Categories)",
+        choices,
+        default=layers,
+        key=key,
+        help="Toggle GIS categories on the situational awareness map.",
+    )
     deck_layers = []  # the pydeck layers to draw, bottom first
     labels = []  # place names drawn after the symbols
     legend = []
@@ -848,26 +861,47 @@ def page_overview():  # PAGE 1: Unified Command-Centre Home Screen
                     f'<span><b>Team:</b> SEOC Broadcast Queue</span>'
                     f'</div></div>'
                 )
-            # Also surface top severity zones
+            # Also surface top severity zones, enriched with Open-Meteo when reachable.
             for z in sev[:4]:
                 lvl = z["level"]
                 cls_lvl = lvl.lower()
-                team_assigned = next(
-                    (i.get("claimed_by") for i in incidents if i["zone"] == z["name"] and i.get("claimed_by")),
-                    "District Response Unit" if z["open_requests"] else "Standby Monitoring",
-                )
+                weather_bits = [
+                    f'<span><b>Location:</b> {html.escape(z["name"])}</span>',
+                    f'<span><b>Prob:</b> {float(z["probability"]):.0%}</span>',
+                ]
+                source_line = ""
+                try:
+                    wx = live_feeds.fetch_open_meteo(z["lat"], z["lon"], zone_name=z["name"])
+                    if wx.get("current_temp_c") is not None:
+                        weather_bits.append(f'<span><b>Temp:</b> {float(wx["current_temp_c"]):.1f} °C</span>')
+                    if wx.get("current_gusts") is not None:
+                        weather_bits.append(
+                            f'<span><b>Gusts:</b> {float(wx["current_gusts"]):.1f} km/h</span>')
+                    elif wx.get("current_wind") is not None:
+                        weather_bits.append(
+                            f'<span><b>Wind:</b> {float(wx["current_wind"]):.1f} km/h</span>')
+                    if wx.get("current_precip_mm") is not None:
+                        weather_bits.append(f'<span><b>Rain:</b> {float(wx["current_precip_mm"]):.1f} mm</span>')
+                    if wx.get("current_pressure_hpa") is not None:
+                        weather_bits.append(
+                            f'<span><b>Pressure:</b> {float(wx["current_pressure_hpa"]):.0f} hPa</span>')
+                    source_line = (
+                        f'<div class="saarthi-alert-meta" style="margin-top:2px;">'
+                        f'<span>Source: {html.escape(str(wx.get("source") or "Open-Meteo Live API"))}</span>'
+                        f'</div>'
+                    )
+                except live_feeds.FeedError:
+                    weather_bits.append(f'<span><b>Open SOS:</b> {z["open_requests"]}</span>')
+                score_pill = status_pill(f"{lvl} · {z['score']}", cls_lvl)
                 alert_cards.append(
                     f'<div class="saarthi-alert-card {cls_lvl}">'
                     f'<div class="saarthi-alert-top">'
                     f'<span class="saarthi-alert-title">{html.escape(z["disaster_type"])} Exposure — {html.escape(z["name"])}</span>'
-                    f'{status_pill(f"{lvl} · {z['score']}", cls_lvl)}'
+                    f'{score_pill}'
                     f'</div>'
-                    f'<div class="saarthi-alert-meta">'
-                    f'<span><b>Location:</b> {html.escape(z["name"])}</span>'
-                    f'<span><b>Prob:</b> {float(z["probability"]):.0%}</span>'
-                    f'<span><b>Open SOS:</b> {z["open_requests"]}</span>'
-                    f'<span><b>Assigned:</b> {html.escape(str(team_assigned))}</span>'
-                    f'</div></div>'
+                    f'<div class="saarthi-alert-meta">{"".join(weather_bits)}</div>'
+                    f'{source_line}'
+                    f'</div>'
                 )
             st.markdown("".join(alert_cards[:6]), unsafe_allow_html=True)
 
@@ -1230,12 +1264,12 @@ def page_alerts():  # PAGE 2: early warnings
             if st.button("Query IMD API Gateway current_wx", key="imd_gateway_btn"):
                 try:
                     payload = live_feeds.fetch_imd_gateway_current()
-                    data = payload.get("data")
-                    if isinstance(data, list):
+                    gateway_data = payload.get("data")
+                    if isinstance(gateway_data, list):
                         st.json({
                             "endpoint": payload["endpoint"],
                             "authenticated": payload["authenticated"],
-                            "sample": data[:3],
+                            "sample": gateway_data[:3],
                         })
                     else:
                         st.json(payload)
@@ -1600,9 +1634,10 @@ def page_network():  # PAGE 5: roads, hospitals, stock (every change is an event
             st.caption("Recorded status. Open, slow, and blocked use the same states as the map.")
             if roads:
                 columns = ("id", "a", "b", "minutes", "current_minutes", "status")
+                headers = {"status": "state"}
                 status_class = {"OPEN": "saarthi-road-open", "SLOW": "saarthi-road-slow",
                                 "BLOCKED": "saarthi-road-blocked"}
-                head = "".join(f"<th>{html.escape(name)}</th>" for name in columns)
+                head = "".join(f"<th>{html.escape(headers.get(name, name))}</th>" for name in columns)
                 body = []
                 for road in roads:
                     cells = []

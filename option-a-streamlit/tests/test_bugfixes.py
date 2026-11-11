@@ -210,6 +210,39 @@ def test_patient_counts_are_whole_and_inside_capacity():
     assert "no beds left" not in reason
 
 
+def test_page_alerts_does_not_shadow_data_or_df():
+    """Local `data = ...` / `df = ...` in page_alerts makes Python treat those names as
+    locals for the whole function, so early df(data.read(...)) raises UnboundLocalError."""
+    import ast
+
+    source = (ROOT / "app.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "page_alerts")
+
+    def bindings(nodes):
+        found = []
+        for node in nodes:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id in ("data", "df"):
+                found.append((node.id, node.lineno))
+            if isinstance(node, ast.arg) and node.arg in ("data", "df"):
+                found.append((node.arg, getattr(node, "lineno", 0)))
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    name = alias.asname or alias.name.split(".")[0]
+                    if name in ("data", "df"):
+                        found.append((name, node.lineno))
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    continue
+                found.extend(bindings([child]))
+        return found
+
+    shadowed = bindings(fn.body)
+    assert not shadowed, f"page_alerts must not bind local data/df (shadows module helpers): {shadowed}"
+
+
 def _run_all():
     failed = 0
     tests = [value for name, value in globals().items() if name.startswith("test_") and callable(value)]
