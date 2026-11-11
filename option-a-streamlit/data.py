@@ -6,12 +6,20 @@
 # in engine.py and stores a new plan version: the same flow as Option B.
 # =====================================================================
 
-import json  # store small lists as text
+import csv  # parse NASA FIRMS CSV hotspot feeds
+import io  # in-memory text streams for CSV/XML parsing
+import json  # store small lists as text and parse GeoJSON/REST payloads
+import math  # haversine distance and meteorological normalization
 import os  # file paths and settings
 import sqlite3  # built-in SQLite database library
+import ssl  # TLS context for public government CAP/RSS feeds
 import threading  # one open transaction per thread
+import urllib.error  # HTTP/URL error handling for live APIs
+import urllib.parse  # query string encoding for REST endpoints
+import urllib.request  # zero-dependency HTTP client with ETag support
+import xml.etree.ElementTree as ET  # OASIS CAP 1.2 & RSS 2.0 XML parser
 from contextlib import contextmanager  # transaction()
-from datetime import datetime  # current time
+from datetime import datetime, timezone  # current time and UTC timestamps
 
 import demo_data as demo  # shared demo world
 import engine  # shared decision logic
@@ -641,340 +649,18 @@ def seed_demo_data():  # fill an empty database from demo_data.py
     replan("SYSTEM_START", "System started")
 
 
-# ---------------------------------------------------------------------
-# Volunteers: NGO teams and rescue tasks. Additive tables only.
-# ---------------------------------------------------------------------
-VOLUNTEER_SCHEMA = """
-CREATE TABLE IF NOT EXISTS ngo_teams(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL,
-    name TEXT NOT NULL,
-    lead_name TEXT,
-    lead_role TEXT NOT NULL,
-    home_zone TEXT,
-    focus TEXT,
-    capacity INTEGER NOT NULL,
-    available INTEGER NOT NULL,
-    status TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS rescue_tasks(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL,
-    title TEXT NOT NULL,
-    zone TEXT NOT NULL,
-    lat REAL NOT NULL,
-    lon REAL NOT NULL,
-    priority TEXT NOT NULL,
-    people INTEGER NOT NULL,
-    status TEXT NOT NULL,
-    detail TEXT
-);
-CREATE TABLE IF NOT EXISTS rescue_assignments(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id INTEGER NOT NULL,
-    team_id INTEGER NOT NULL,
-    volunteers INTEGER NOT NULL,
-    assigned_at TEXT NOT NULL,
-    dispatched_at TEXT,
-    status TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS rescue_status_log(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id INTEGER NOT NULL,
-    status TEXT NOT NULL,
-    changed_at TEXT NOT NULL,
-    note TEXT
-);
-"""
-
-RESCUE_STATUSES = ("PENDING", "ASSIGNED", "DISPATCHED", "IN_PROGRESS", "RESCUED", "COMPLETED")
-RESCUE_PRIORITIES = ("Critical", "High", "Moderate", "Low")
-_RESCUE_ORDER = {name: index for index, name in enumerate(RESCUE_STATUSES)}
-
-
-def ensure_volunteer_schema():
-    """Create volunteer tables when missing. Existing tables and rows stay in place."""
-    conn = sqlite3.connect(get_db_path(), timeout=10)
-    try:
-        conn.executescript(VOLUNTEER_SCHEMA)
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def _clean_text(value, label):
-    text = str(value or "").strip()
-    if not text:
-        raise ActionError(f"{label} is required.")
-    return text
-
-
-def register_ngo_team(name, lead_name, lead_role, home_zone, focus, capacity):
-    """Register one NGO team. Available strength starts at full capacity."""
-    ensure_volunteer_schema()
-    name = _clean_text(name, "Team name")
-    role = _clean_text(lead_role, "Head role")
-    capacity = int(capacity)
-    if capacity < 1:
-        raise ActionError("Volunteer capacity must be at least 1.")
-    zone = _clean_text(home_zone, "Home zone")
-    if not read("SELECT name FROM zones WHERE name=:n", n=zone):
-        raise ActionError(f"{zone} is not a recorded zone.")
-    team_id = write(
-        """INSERT INTO ngo_teams(created_at, name, lead_name, lead_role, home_zone, focus,
-              capacity, available, status)
-           VALUES (:t, :n, :lead, :role, :zone, :focus, :cap, :cap, 'AVAILABLE')""",
-        t=now(), n=name, lead=str(lead_name or "").strip(), role=role, zone=zone,
-        focus=str(focus or "").strip(), cap=capacity)
-    event("VOLUNTEER_TEAM", f"NGO team registered: {name} ({capacity} volunteers)", do_replan=False)
-    return team_id
-
-
-def create_rescue_task(title, zone, priority, people, detail=""):
-    """Record a rescue task at the affected zone. Status starts at PENDING."""
-    ensure_volunteer_schema()
-    title = _clean_text(title, "Task title")
-    zone = _clean_text(zone, "Affected zone")
-    if priority not in RESCUE_PRIORITIES:
-        raise ActionError("Choose a recorded priority.")
-    people = int(people)
-    if people < 1:
-        raise ActionError("People requiring assistance must be at least 1.")
-    with transaction():
-        spots = read("SELECT lat, lon FROM zones WHERE name=:n", n=zone)
-        if not spots or spots[0]["lat"] is None or spots[0]["lon"] is None:
-            raise ActionError(f"{zone} has no recorded location.")
-        placed = read("SELECT COUNT(*) AS n FROM rescue_tasks WHERE zone=:z", z=zone)[0]["n"]
-        lat = float(spots[0]["lat"])
-        lon = float(spots[0]["lon"]) + 0.045 * (int(placed) + 1)
-        stamp = now()
-        task_id = write(
-            """INSERT INTO rescue_tasks(created_at, title, zone, lat, lon, priority, people, status, detail)
-               VALUES (:t, :title, :zone, :lat, :lon, :priority, :people, 'PENDING', :detail)""",
-            t=stamp, title=title, zone=zone, lat=lat, lon=lon, priority=priority,
-            people=people, detail=str(detail or "").strip())
-        write("""INSERT INTO rescue_status_log(task_id, status, changed_at, note)
-                 VALUES (:i, 'PENDING', :t, :n)""",
-              i=task_id, t=stamp, n="Rescue task recorded.")
-    event("RESCUE_TASK", f"Rescue task #{task_id} recorded in {zone}", do_replan=False)
-    return task_id
-
-
-def list_ngo_teams():
-    ensure_volunteer_schema()
-    return read("SELECT * FROM ngo_teams ORDER BY id DESC")
-
-
-def list_rescue_tasks():
-    ensure_volunteer_schema()
-    return read("SELECT * FROM rescue_tasks ORDER BY id DESC")
-
-
-def list_rescue_assignments():
-    ensure_volunteer_schema()
-    return read("""SELECT a.*, t.title, t.zone, t.status AS task_status, n.name AS team_name
-                   FROM rescue_assignments a
-                   JOIN rescue_tasks t ON t.id = a.task_id
-                   JOIN ngo_teams n ON n.id = a.team_id
-                   ORDER BY a.id DESC""")
-
-
-def rescue_status_log(task_id=None):
-    ensure_volunteer_schema()
-    if task_id is None:
-        return read("SELECT * FROM rescue_status_log ORDER BY id DESC")
-    return read("SELECT * FROM rescue_status_log WHERE task_id=:i ORDER BY id", i=int(task_id))
-
-
-def assignable_teams():
-    ensure_volunteer_schema()
-    return read("""SELECT * FROM ngo_teams
-                   WHERE status='AVAILABLE' AND available > 0
-                   ORDER BY name""")
-
-
-def open_rescue_tasks():
-    """Tasks that can still take a team. Completed and rescued work stays closed."""
-    ensure_volunteer_schema()
-    return read("""SELECT * FROM rescue_tasks
-                   WHERE status IN ('PENDING', 'ASSIGNED', 'DISPATCHED', 'IN_PROGRESS')
-                   ORDER BY id""")
-
-
-def dispatchable_assignments():
-    ensure_volunteer_schema()
-    return read("""SELECT a.*, t.title, t.zone, t.status AS task_status, n.name AS team_name
-                   FROM rescue_assignments a
-                   JOIN rescue_tasks t ON t.id = a.task_id
-                   JOIN ngo_teams n ON n.id = a.team_id
-                   WHERE a.status='ASSIGNED' AND t.status != 'COMPLETED'
-                   ORDER BY a.id""")
-
-
-def progressable_tasks():
-    ensure_volunteer_schema()
-    return read("""SELECT * FROM rescue_tasks
-                   WHERE status IN ('DISPATCHED', 'IN_PROGRESS', 'RESCUED')
-                   ORDER BY id""")
-
-
-def next_rescue_statuses(status):
-    """Forward rescue states an operator can set after dispatch."""
-    rank = _RESCUE_ORDER.get(status, -1)
-    return [name for name in ("IN_PROGRESS", "RESCUED", "COMPLETED") if _RESCUE_ORDER[name] > rank]
-
-
-def rescue_task_markers():
-    """Locations for the operations map. Reads volunteer rows only."""
-    ensure_volunteer_schema()
-    return read("""SELECT id, title, zone, lat, lon, priority, people, status
-                   FROM rescue_tasks ORDER BY id""")
-
-
-def volunteer_dashboard():
-    ensure_volunteer_schema()
-    teams = read("SELECT capacity, available, status FROM ngo_teams")
-    tasks = read("SELECT status FROM rescue_tasks")
-    return {
-        "teams": len(teams),
-        "volunteers": sum(int(row["capacity"] or 0) for row in teams),
-        "available": sum(int(row["available"] or 0) for row in teams),
-        "active_tasks": sum(1 for row in tasks if row["status"] != "COMPLETED"),
-        "deployed": sum(1 for row in teams if row["status"] == "DEPLOYED"),
-        "completed": sum(1 for row in tasks if row["status"] == "COMPLETED"),
-    }
-
-
-def assign_rescue_team(task_id, team_id, volunteers):
-    """Assign volunteers from an available team. This does not dispatch them."""
-    ensure_volunteer_schema()
-    volunteers = int(volunteers)
-    if volunteers < 1:
-        raise ActionError("Assign at least 1 volunteer.")
-    with transaction():
-        tasks = read("SELECT * FROM rescue_tasks WHERE id=:i", i=int(task_id))
-        if not tasks:
-            raise ActionError("Rescue task was not found.")
-        task = tasks[0]
-        if task["status"] in ("RESCUED", "COMPLETED"):
-            raise ActionError("This rescue task is no longer open for assignment.")
-        teams = read("SELECT * FROM ngo_teams WHERE id=:i", i=int(team_id))
-        if not teams:
-            raise ActionError("NGO team was not found.")
-        team = teams[0]
-        if team["status"] != "AVAILABLE":
-            raise ActionError(f"{team['name']} is deployed. Choose an available team.")
-        available = int(team["available"])
-        if volunteers > available:
-            raise ActionError(
-                f"{team['name']} has {available} volunteers available. "
-                f"That is below the {volunteers} requested.")
-        already = read("""SELECT id FROM rescue_assignments
-                          WHERE task_id=:task AND team_id=:team""",
-                       task=task["id"], team=team["id"])
-        if already:
-            raise ActionError(f"{team['name']} is already assigned to this rescue task.")
-        write("UPDATE ngo_teams SET available=:a WHERE id=:i",
-              a=available - volunteers, i=team["id"])
-        write("""INSERT INTO rescue_assignments(task_id, team_id, volunteers, assigned_at, dispatched_at, status)
-                 VALUES (:task, :team, :n, :t, NULL, 'ASSIGNED')""",
-              task=task["id"], team=team["id"], n=volunteers, t=now())
-        if task["status"] == "PENDING":
-            stamp = now()
-            write("UPDATE rescue_tasks SET status='ASSIGNED' WHERE id=:i", i=task["id"])
-            write("""INSERT INTO rescue_status_log(task_id, status, changed_at, note)
-                     VALUES (:i, 'ASSIGNED', :t, :n)""",
-                  i=task["id"], t=stamp,
-                  n=f"Assigned {volunteers} volunteers from {team['name']}.")
-    event("VOLUNTEER_ASSIGNED",
-          f"Assigned {team['name']} ({volunteers}) to rescue task #{task['id']}",
-          do_replan=False)
-
-
-def dispatch_rescue_assignment(assignment_id):
-    """Operator dispatch. Assignment alone never sets this state."""
-    ensure_volunteer_schema()
-    with transaction():
-        rows = read("SELECT * FROM rescue_assignments WHERE id=:i", i=int(assignment_id))
-        if not rows:
-            raise ActionError("Assignment was not found.")
-        row = rows[0]
-        if row["status"] != "ASSIGNED":
-            raise ActionError("This assignment is already dispatched.")
-        tasks = read("SELECT * FROM rescue_tasks WHERE id=:i", i=row["task_id"])
-        if not tasks:
-            raise ActionError("Rescue task was not found.")
-        task = tasks[0]
-        if task["status"] == "COMPLETED":
-            raise ActionError("This rescue task is already completed.")
-        team = read("SELECT * FROM ngo_teams WHERE id=:i", i=row["team_id"])[0]
-        stamp = now()
-        write("""UPDATE rescue_assignments SET status='DISPATCHED', dispatched_at=:t WHERE id=:i""",
-              t=stamp, i=row["id"])
-        write("UPDATE ngo_teams SET status='DEPLOYED' WHERE id=:i", i=team["id"])
-        if task["status"] in ("PENDING", "ASSIGNED"):
-            write("UPDATE rescue_tasks SET status='DISPATCHED' WHERE id=:i", i=task["id"])
-            write("""INSERT INTO rescue_status_log(task_id, status, changed_at, note)
-                     VALUES (:i, 'DISPATCHED', :t, :n)""",
-                  i=task["id"], t=stamp, n=f"Dispatched {team['name']}.")
-    event("VOLUNTEER_DISPATCHED",
-          f"Dispatched {team['name']} on rescue task #{task['id']}",
-          do_replan=False)
-
-
-def _release_task_volunteers(task_id):
-    """Return assigned strength when a rescue is completed. Call inside a transaction."""
-    for row in read("SELECT * FROM rescue_assignments WHERE task_id=:i", i=int(task_id)):
-        team = read("SELECT * FROM ngo_teams WHERE id=:i", i=row["team_id"])[0]
-        available = min(int(team["capacity"]), int(team["available"]) + int(row["volunteers"]))
-        still = read("""SELECT COUNT(*) AS n
-                        FROM rescue_assignments a
-                        JOIN rescue_tasks t ON t.id = a.task_id
-                        WHERE a.team_id=:team AND a.dispatched_at IS NOT NULL
-                          AND t.status IN ('DISPATCHED', 'IN_PROGRESS', 'RESCUED')
-                          AND t.id != :task""",
-                     team=row["team_id"], task=int(task_id))[0]["n"]
-        write("UPDATE ngo_teams SET available=:a, status=:s WHERE id=:i",
-              a=available, s="DEPLOYED" if still else "AVAILABLE", i=team["id"])
-
-
-def update_rescue_progress(task_id, status):
-    """Move a dispatched rescue forward. Dispatch itself stays a separate action."""
-    ensure_volunteer_schema()
-    status = str(status or "").strip()
-    if status not in ("IN_PROGRESS", "RESCUED", "COMPLETED"):
-        raise ActionError("Choose IN_PROGRESS, RESCUED, or COMPLETED.")
-    with transaction():
-        tasks = read("SELECT * FROM rescue_tasks WHERE id=:i", i=int(task_id))
-        if not tasks:
-            raise ActionError("Rescue task was not found.")
-        task = tasks[0]
-        if _RESCUE_ORDER[task["status"]] < _RESCUE_ORDER["DISPATCHED"]:
-            raise ActionError("Dispatch the assigned team before updating rescue progress.")
-        if _RESCUE_ORDER[status] <= _RESCUE_ORDER[task["status"]]:
-            raise ActionError("Rescue progress only moves forward.")
-        if status == "COMPLETED":
-            _release_task_volunteers(task["id"])
-        stamp = now()
-        write("UPDATE rescue_tasks SET status=:s WHERE id=:i", s=status, i=task["id"])
-        write("""INSERT INTO rescue_status_log(task_id, status, changed_at, note)
-                 VALUES (:i, :s, :t, :n)""",
-              i=task["id"], s=status, t=stamp, n=f"Status set to {status}.")
-    event("RESCUE_PROGRESS", f"Rescue task #{task['id']} is {status}", do_replan=False)
-
-
 def init_db():  # create tables; add demo data if empty
     conn = sqlite3.connect(get_db_path())
     conn.executescript(SCHEMA)
     from intake_agent import INTAKE_SCHEMA  # new table only; existing tables are not dropped
     conn.executescript(INTAKE_SCHEMA)
-    conn.executescript(VOLUNTEER_SCHEMA)
     conn.commit()
     conn.close()
     if read("SELECT COUNT(*) AS n FROM zones")[0]["n"] == 0:
         seed_demo_data()
     from intake_agent import ensure_schema  # add score columns on a database that already has reports
     ensure_schema()
+    ensure_telemetry_schema()
 
 
 def reset_db():  # delete the file and start again
@@ -982,3 +668,1195 @@ def reset_db():  # delete the file and start again
     if os.path.exists(path):
         os.remove(path)
     init_db()
+
+
+
+# =====================================================================
+# REAL-TIME API & CAP 1.2 XML TELEMETRY INTEGRATION
+# ---------------------------------------------------------------------
+# Connects Saarthi directly to official Indian and global feeds using
+# Python's standard library (zero extra pip packages required):
+#   1. NDMA SACHET CAP 1.2 XML & RSS Feeds (sachet.ndma.gov.in)
+#      - Implements mandatory HTTP ETag (If-None-Match / 304 Not Modified)
+#        client-side caching per NDMA's CAP XML Integration Guide.
+#   2. GDACS Multi-Hazard RSS / CAP XML Feed (gdacs.org/xml/rss.xml)
+#   3. Open-Meteo Forecast API (api.open-meteo.com/v1/forecast) &
+#      IMD API Gateway (api.imd.gov.in) for live zone risk probabilities
+#      plus live temperature (°C), wind speed/gusts (km/h), rainfall (mm),
+#      and surface pressure (hPa).
+#   4. USGS Earthquake Hazards GeoJSON API (earthquake.usgs.gov) &
+#      NASA FIRMS / EONET Active Fire APIs for Intake & Triage reports
+#   5. OpenRouteService Directions API / OSRM Routing API for live
+#      corridor travel minutes and road conditions across R1-R20.
+# =====================================================================
+
+TELEMETRY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS cap_feed_logs(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fetched_at TEXT,
+    feed_source TEXT,
+    identifier TEXT,
+    sender TEXT,
+    event TEXT,
+    severity TEXT,
+    urgency TEXT,
+    area_desc TEXT,
+    matched_zone TEXT,
+    headline TEXT,
+    pub_date TEXT,
+    xml_url TEXT,
+    etag_status TEXT
+);
+CREATE TABLE IF NOT EXISTS volunteer_teams(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    registered_at TEXT,
+    team_name TEXT,
+    team_lead TEXT,
+    head_role TEXT,
+    home_zone TEXT,
+    focus_area TEXT,
+    capacity INTEGER,
+    status TEXT
+);
+CREATE TABLE IF NOT EXISTS rescue_tasks(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT,
+    title TEXT,
+    zone TEXT,
+    lat REAL,
+    lon REAL,
+    priority TEXT,
+    people INTEGER,
+    location_note TEXT,
+    status TEXT,
+    assigned_team_id INTEGER,
+    assigned_team_name TEXT
+);
+CREATE TABLE IF NOT EXISTS volunteer_assignments(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    assigned_at TEXT,
+    updated_at TEXT,
+    task_id INTEGER,
+    task_title TEXT,
+    zone TEXT,
+    priority TEXT,
+    people INTEGER,
+    team_id INTEGER,
+    team_name TEXT,
+    team_lead TEXT,
+    volunteers INTEGER,
+    status TEXT
+);
+CREATE TABLE IF NOT EXISTS volunteer_status_history(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT,
+    assignment_id INTEGER,
+    task_id INTEGER,
+    task_title TEXT,
+    team_id INTEGER,
+    team_name TEXT,
+    status TEXT,
+    note TEXT
+);
+"""
+
+
+def ensure_telemetry_schema():
+    """Add live weather telemetry columns to risk_logs, CAP metadata columns to alerts,
+    and create cap_feed_logs and volunteer tables without altering existing rows or breaking tests."""
+    for stmt in TELEMETRY_SCHEMA.strip().split(";"):
+        if stmt.strip():
+            write(stmt.strip())
+    risk_cols = {row["name"] for row in read("PRAGMA table_info(risk_logs)")}
+    for col_name, col_type in (
+        ("temp_c", "REAL"),
+        ("wind_kmh", "REAL"),
+        ("gusts_kmh", "REAL"),
+        ("precip_mm", "REAL"),
+        ("pressure_hpa", "REAL"),
+    ):
+        if col_name not in risk_cols:
+            write(f"ALTER TABLE risk_logs ADD COLUMN {col_name} {col_type}")
+
+    alert_cols = {row["name"] for row in read("PRAGMA table_info(alerts)")}
+    for col_name, col_type in (
+        ("source", "TEXT"),
+        ("cap_identifier", "TEXT"),
+        ("cap_sender", "TEXT"),
+        ("cap_headline", "TEXT"),
+        ("cap_area_desc", "TEXT"),
+    ):
+        if col_name not in alert_cols:
+            write(f"ALTER TABLE alerts ADD COLUMN {col_name} {col_type}")
+    write("UPDATE alerts SET source='Seeded / Operator' WHERE source IS NULL")
+
+
+SACHET_MH_RSS_URL = os.environ.get(
+    "SAARTHI_SACHET_MH_RSS",
+    "https://sachet.ndma.gov.in/cap_public_website/rss/rss_maharashtra.xml",
+)
+SACHET_INDIA_RSS_URL = os.environ.get(
+    "SAARTHI_SACHET_INDIA_RSS",
+    "https://sachet.ndma.gov.in/cap_public_website/rss/rss_india.xml",
+)
+GDACS_RSS_URL = os.environ.get(
+    "SAARTHI_GDACS_RSS",
+    "https://www.gdacs.org/xml/rss.xml",
+)
+OPEN_METEO_URL = os.environ.get(
+    "SAARTHI_OPEN_METEO_URL",
+    "https://api.open-meteo.com/v1/forecast",
+)
+IMD_DISTRICT_API_URL = os.environ.get(
+    "SAARTHI_IMD_API_URL",
+    "https://mausam.imd.gov.in/imd_latest/contents/districtwisewarnings_mc.php",
+)
+USGS_GEOJSON_URL = os.environ.get(
+    "SAARTHI_USGS_URL",
+    "https://earthquake.usgs.gov/fdsnws/event/1/query",
+)
+NASA_EONET_URL = os.environ.get(
+    "SAARTHI_NASA_EONET_URL",
+    "https://eonet.gsfc.nasa.gov/api/v3/events",
+)
+NASA_FIRMS_AREA_URL = os.environ.get(
+    "SAARTHI_NASA_FIRMS_URL",
+    "https://firms.modaps.eosdis.nasa.gov/api/area/csv",
+)
+OSRM_ROUTE_URL = os.environ.get(
+    "SAARTHI_OSRM_URL",
+    "https://router.project-osrm.org/route/v1/driving",
+)
+ORS_DIRECTIONS_URL = os.environ.get(
+    "SAARTHI_ORS_URL",
+    "https://api.openrouteservice.org/v2/directions/driving-car",
+)
+
+CAP_NS = {"cap": "urn:oasis:names:tc:emergency:cap:1.2"}
+GDACS_NS = {
+    "gdacs": "http://www.gdacs.org",
+    "geo": "http://www.w3.org/2003/01/geo/wgs84_pos#",
+}
+
+# Client-side ETag cache: url -> (etag_str, raw_bytes)
+# Required by NDMA SACHET CAP XML Feed Integration Guide for Agencies
+_ETAG_CACHE = {}
+
+# District alias lookup for matching SACHET CAP areaDesc / IMD bulletins to Saarthi zones
+ZONE_ALIASES = {
+    "Mumbai": ("mumbai", "mumbai city", "mumbai suburban", "greater mumbai", "bombay", "konkan"),
+    "Thane": ("thane", "navi mumbai", "kalyan", "bhiwandi", "ulhasnagar", "konkan"),
+    "Palghar": ("palghar", "dahanu", "vasai", "jawhar", "north konkan"),
+    "Raigad": ("raigad", "raigarh", "alibag", "panvel", "mahad", "roha", "konkan"),
+    "Ratnagiri": ("ratnagiri", "chiplun", "dapoli", "rajapur", "south konkan", "konkan"),
+    "Sindhudurg": ("sindhudurg", "kudal", "sawantwadi", "malvan", "vengurla", "south konkan", "konkan"),
+    "Pune": ("pune", "pimpri", "chinchwad", "baramati", "lonavala", "ghat areas of pune", "madhya maharashtra"),
+}
+
+CAP_SEVERITY_TO_SAARTHI = {
+    "extreme": "Red",
+    "severe": "Orange",
+    "moderate": "Yellow",
+    "minor": "Yellow",
+    "unknown": "Yellow",
+}
+
+
+def fetch_with_etag(url, timeout=6, extra_headers=None):
+    """Fetch an XML/JSON endpoint with HTTP ETag (If-None-Match) caching.
+
+    Follows the NDMA SACHET CAP XML Integration Guide:
+      - Step 1: First GET request stores the XML/JSON payload and ETag header.
+      - Step 2: Subsequent GET requests send If-None-Match: <stored-etag>.
+      - Step 3: On HTTP 304 Not Modified, returns the cached bytes immediately.
+    """
+    headers = {
+        "User-Agent": "Saarthi-SEOC-CommandCentre/1.0 (Maharashtra Disaster Management)",
+        "Accept": "application/xml, text/xml, application/rss+xml, application/json, */*",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+    cached_etag, cached_body = _ETAG_CACHE.get(url, (None, None))
+    if cached_etag:
+        headers["If-None-Match"] = cached_etag
+
+    req = urllib.request.Request(url, headers=headers)
+    ctx = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            body = resp.read()
+            new_etag = resp.headers.get("ETag") or resp.headers.get("etag")
+            if new_etag:
+                _ETAG_CACHE[url] = (new_etag, body)
+            elif body:
+                _ETAG_CACHE[url] = (None, body)
+            return body, False, (new_etag or "200 OK (no ETag)")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 304 and cached_body is not None:
+            return cached_body, True, f"304 Not Modified ({cached_etag})"
+        raise
+
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    """Great-circle distance in km between two WGS84 coordinates."""
+    r = 6371.0
+    p1, p2 = math.radians(float(lat1)), math.radians(float(lat2))
+    dlat = math.radians(float(lat2) - float(lat1))
+    dlon = math.radians(float(lon2) - float(lon1))
+    a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(max(0.0, min(1.0, a))))
+
+
+def nearest_monitored_zone(lat, lon, max_km=250.0):
+    """Return (zone_name, distance_km) for the closest monitored Saarthi zone, or (None, None)."""
+    zones = read("SELECT name, lat, lon FROM zones")
+    best_name, best_dist = None, None
+    for z in zones:
+        if z.get("lat") is None or z.get("lon") is None:
+            continue
+        dist = _haversine_km(lat, lon, z["lat"], z["lon"])
+        if best_dist is None or dist < best_dist:
+            best_name, best_dist = z["name"], dist
+    if best_dist is not None and best_dist <= max_km:
+        return best_name, round(best_dist, 1)
+    return None, None
+
+
+def map_cap_hazard(event_text):
+    """Map a CAP 1.2 <cap:event> or RSS category string to a valid Saarthi DISASTER_TYPES value."""
+    text = str(event_text or "").lower()
+    if any(w in text for w in ("cyclone", "cyclonic", "squall", "gale", "storm surge", "high wind", "typhoon", "hurricane")):
+        return "Cyclone"
+    if any(w in text for w in ("heat", "heatwave", "heat wave", "warm night", "hot weather")):
+        return "Heatwave"
+    if any(w in text for w in ("landslide", "mudslide", "landslip", "rockfall", "avalanche")):
+        return "Landslide"
+    if any(w in text for w in ("earthquake", "seismic", "tremor", "quake", "tsunami")):
+        return "Earthquake"
+    return "Flood"  # Heavy rain, flash flood, thunderstorm, lightning, inundation
+
+
+def _match_zones_in_text(area_text):
+    """Match CAP <cap:areaDesc> or headline text to monitored Maharashtra zones."""
+    lowered = str(area_text or "").lower()
+    matched = []
+    for zone_name, aliases in ZONE_ALIASES.items():
+        if any(alias in lowered for alias in aliases):
+            matched.append(zone_name)
+    return matched
+
+
+def _parse_cap_eta_hours(info_elem):
+    """Compute expected hours to impact/expiry from CAP <cap:onset>, <cap:effective>, or <cap:expires>."""
+    for tag in ("cap:onset", "cap:effective", "cap:expires"):
+        raw = info_elem.findtext(tag, default="", namespaces=CAP_NS).strip()
+        if not raw:
+            continue
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            now_utc = datetime.now(timezone.utc)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            diff_h = (dt - now_utc).total_seconds() / 3600.0
+            if 1.0 <= diff_h <= 72.0:
+                return int(round(diff_h))
+        except Exception:
+            continue
+    return 12
+
+
+def _parse_cap_polygon_centroid(area_elem):
+    """Extract (lat, lon, radius_km) from a CAP <cap:polygon> or <cap:circle> element if present."""
+    circle_raw = area_elem.findtext("cap:circle", default="", namespaces=CAP_NS).strip()
+    if circle_raw:
+        try:
+            coord_part, rad_part = circle_raw.split()
+            lat_s, lon_s = coord_part.split(",")
+            return float(lat_s), float(lon_s), max(5, min(100, int(round(float(rad_part)))))
+        except Exception:
+            pass
+    poly_raw = area_elem.findtext("cap:polygon", default="", namespaces=CAP_NS).strip()
+    if poly_raw:
+        pts = []
+        for pair in poly_raw.split():
+            if "," in pair:
+                try:
+                    la, lo = pair.split(",")[:2]
+                    pts.append((float(la), float(lo)))
+                except Exception:
+                    continue
+        if pts:
+            avg_lat = sum(p[0] for p in pts) / len(pts)
+            avg_lon = sum(p[1] for p in pts) / len(pts)
+            max_d = max((_haversine_km(avg_lat, avg_lon, p[0], p[1]) for p in pts), default=35.0)
+            return avg_lat, avg_lon, max(10, min(100, int(round(max_d or 35.0))))
+    return None, None, 35
+
+
+def parse_sachet_cap_xml(xml_bytes, include_unmatched=False):
+    """Parse an OASIS CAP 1.2 XML document from NDMA SACHET into structured alert dicts."""
+    root = ET.fromstring(xml_bytes)
+    identifier = (
+        root.findtext("cap:identifier", default="", namespaces=CAP_NS)
+        or root.findtext("{*}identifier", default="")
+    ).strip()
+    sender = (
+        root.findtext("cap:sender", default="NDMA-SACHET", namespaces=CAP_NS)
+        or root.findtext("{*}sender", default="NDMA-SACHET")
+    ).strip()
+    sent_time = (
+        root.findtext("cap:sent", default="", namespaces=CAP_NS)
+        or root.findtext("{*}sent", default="")
+    ).strip()
+
+    info_nodes = root.findall("cap:info", CAP_NS) or root.findall("{*}info")
+    parsed_alerts = []
+    for info in info_nodes:
+        event_name = (
+            info.findtext("cap:event", default="", namespaces=CAP_NS)
+            or info.findtext("{*}event", default="Heavy Rain")
+        ).strip()
+        sev_raw = (
+            info.findtext("cap:severity", default="Moderate", namespaces=CAP_NS)
+            or info.findtext("{*}severity", default="Moderate")
+        ).strip().lower()
+        urgency_raw = (
+            info.findtext("cap:urgency", default="Expected", namespaces=CAP_NS)
+            or info.findtext("{*}urgency", default="Expected")
+        ).strip()
+        headline = (
+            info.findtext("cap:headline", default="", namespaces=CAP_NS)
+            or info.findtext("{*}headline", default=event_name)
+        ).strip()
+        instruction = (
+            info.findtext("cap:instruction", default="", namespaces=CAP_NS)
+            or info.findtext("{*}instruction", default="")
+        ).strip()
+
+        area_nodes = info.findall("cap:area", CAP_NS) or info.findall("{*}area")
+        area_texts = []
+        centroid_lat, centroid_lon, radius_km = None, None, 35
+        for area in area_nodes:
+            desc = (
+                area.findtext("cap:areaDesc", default="", namespaces=CAP_NS)
+                or area.findtext("{*}areaDesc", default="")
+            ).strip()
+            if desc:
+                area_texts.append(desc)
+            c_lat, c_lon, c_rad = _parse_cap_polygon_centroid(area)
+            if c_lat is not None and centroid_lat is None:
+                centroid_lat, centroid_lon, radius_km = c_lat, c_lon, c_rad
+
+        combined_area = " ; ".join(area_texts) + " " + headline
+        matched_zones = _match_zones_in_text(combined_area)
+        if not matched_zones and centroid_lat is not None and centroid_lon is not None:
+            near_zone, _ = nearest_monitored_zone(centroid_lat, centroid_lon, max_km=180.0)
+            if near_zone:
+                matched_zones = [near_zone]
+
+        hazard = map_cap_hazard(event_name + " " + headline)
+        severity_word = CAP_SEVERITY_TO_SAARTHI.get(sev_raw, "Yellow")
+        eta_hours = _parse_cap_eta_hours(info)
+        area_str = " ; ".join(area_texts) or "Maharashtra / Regional"
+
+        if matched_zones:
+            for z_name in matched_zones:
+                parsed_alerts.append({
+                    "identifier": identifier,
+                    "sender": sender,
+                    "sent": sent_time,
+                    "zone": z_name,
+                    "disaster_type": hazard,
+                    "event": event_name or hazard,
+                    "severity": severity_word,
+                    "cap_severity": sev_raw.capitalize(),
+                    "urgency": urgency_raw,
+                    "eta_hours": eta_hours,
+                    "radius_km": radius_km,
+                    "headline": headline or event_name,
+                    "instruction": instruction,
+                    "area_desc": area_str,
+                })
+        elif include_unmatched:
+            parsed_alerts.append({
+                "identifier": identifier,
+                "sender": sender,
+                "sent": sent_time,
+                "zone": None,
+                "disaster_type": hazard,
+                "event": event_name or hazard,
+                "severity": severity_word,
+                "cap_severity": sev_raw.capitalize(),
+                "urgency": urgency_raw,
+                "eta_hours": eta_hours,
+                "radius_km": radius_km,
+                "headline": headline or event_name,
+                "instruction": instruction,
+                "area_desc": area_str,
+            })
+    return parsed_alerts
+
+
+def sync_sachet_cap_xml(max_items=12):
+    """Poll NDMA SACHET Maharashtra & All-India RSS + CAP 1.2 XML feeds with ETag caching.
+
+    Stores every fetched CAP 1.2 XML / RSS item in `cap_feed_logs` for table inspection,
+    queues matching Maharashtra district alerts in `alerts`, and records CAP risk readings in `risk_logs`.
+    """
+    ensure_telemetry_schema()
+    inserted_alerts = 0
+    inserted_risks = 0
+    logged_xml_items = 0
+    etags_reused = 0
+    feeds_checked = []
+
+    existing_alerts = {
+        (r["zone"], r["disaster_type"], r["severity"])
+        for r in read("SELECT zone, disaster_type, severity FROM alerts WHERE sms_status='QUEUED'")
+    }
+    existing_feed_ids = {
+        (r["feed_source"], r["identifier"], r["headline"])
+        for r in read("SELECT feed_source, identifier, headline FROM cap_feed_logs")
+    }
+
+    for feed_label, rss_url in (("NDMA SACHET Maharashtra RSS", SACHET_MH_RSS_URL), ("NDMA SACHET All-India RSS", SACHET_INDIA_RSS_URL)):
+        try:
+            rss_bytes, was_304, rss_etag_info = fetch_with_etag(rss_url, timeout=6)
+            if was_304:
+                etags_reused += 1
+            feeds_checked.append(feed_label)
+            rss_root = ET.fromstring(rss_bytes)
+        except Exception:
+            continue
+
+        items = rss_root.findall(".//item") or rss_root.findall(".//{*}item")
+        for item in items[:max_items]:
+            title = (item.findtext("title") or item.findtext("{*}title") or "").strip()
+            link = (item.findtext("link") or item.findtext("{*}link") or item.findtext("guid") or "").strip()
+            category = (item.findtext("category") or item.findtext("{*}category") or "").strip()
+            pub_date = (item.findtext("pubDate") or item.findtext("{*}pubDate") or now()).strip()
+            guid = (item.findtext("guid") or item.findtext("{*}guid") or link).strip()
+            ident = guid.split("identifier=")[-1] if "identifier=" in guid else guid[-24:]
+
+            # 1. If link points to FetchXMLFile?identifier=..., fetch the full CAP 1.2 XML with ETag
+            cap_records = []
+            etag_status = rss_etag_info
+            if "FetchXMLFile" in link:
+                try:
+                    cap_bytes, cap_304, cap_etag_info = fetch_with_etag(link, timeout=6)
+                    etag_status = cap_etag_info
+                    if cap_304:
+                        etags_reused += 1
+                    cap_records = parse_sachet_cap_xml(cap_bytes, include_unmatched=True)
+                except Exception:
+                    cap_records = []
+
+            # 2. Fallback to RSS item metadata if FetchXMLFile was not reachable or had no sub-blocks
+            if not cap_records:
+                matched_zones = _match_zones_in_text(title + " " + category)
+                hazard = map_cap_hazard(title + " " + category)
+                sev_word = "Red" if any(k in title.lower() for k in ("red", "extreme", "very heavy")) else (
+                    "Orange" if any(k in title.lower() for k in ("orange", "severe", "heavy")) else "Yellow"
+                )
+                if matched_zones:
+                    for z_name in matched_zones:
+                        cap_records.append({
+                            "identifier": ident,
+                            "sender": "NDMA SACHET RSS",
+                            "sent": pub_date,
+                            "zone": z_name,
+                            "disaster_type": hazard,
+                            "event": category or hazard,
+                            "severity": sev_word,
+                            "cap_severity": sev_word,
+                            "urgency": "Expected",
+                            "eta_hours": 12,
+                            "radius_km": 35,
+                            "headline": title or f"NDMA SACHET {hazard} Advisory",
+                            "area_desc": z_name,
+                        })
+                else:
+                    cap_records.append({
+                        "identifier": ident,
+                        "sender": "NDMA SACHET RSS",
+                        "sent": pub_date,
+                        "zone": None,
+                        "disaster_type": hazard,
+                        "event": category or hazard,
+                        "severity": sev_word,
+                        "cap_severity": sev_word,
+                        "urgency": "Expected",
+                        "eta_hours": 12,
+                        "radius_km": 35,
+                        "headline": title or f"NDMA SACHET {hazard} Advisory",
+                        "area_desc": "Maharashtra / National Advisory",
+                    })
+
+            for rec in cap_records:
+                feed_sig = (feed_label, str(rec.get("identifier") or ident), str(rec.get("headline") or title))
+                if feed_sig not in existing_feed_ids:
+                    write(
+                        """INSERT INTO cap_feed_logs(fetched_at, feed_source, identifier, sender, event, severity,
+                           urgency, area_desc, matched_zone, headline, pub_date, xml_url, etag_status)
+                           VALUES (:fa, :fs, :id, :sn, :ev, :sv, :ur, :ar, :mz, :hl, :pd, :xu, :et)""",
+                        fa=now(),
+                        fs=feed_label,
+                        id=str(rec.get("identifier") or ident),
+                        sn=str(rec.get("sender") or "NDMA-SACHET"),
+                        ev=str(rec.get("event") or rec["disaster_type"]),
+                        sv=str(rec.get("cap_severity") or rec["severity"]),
+                        ur=str(rec.get("urgency") or "Expected"),
+                        ar=str(rec.get("area_desc") or "Maharashtra"),
+                        mz=rec.get("zone") or "Regional (Outside 7 Zones)",
+                        hl=str(rec.get("headline") or title),
+                        pd=str(rec.get("sent") or pub_date),
+                        xu=link or rss_url,
+                        et=str(etag_status),
+                    )
+                    existing_feed_ids.add(feed_sig)
+                    logged_xml_items += 1
+
+                if not rec.get("zone"):
+                    continue
+
+                sig = (rec["zone"], rec["disaster_type"], rec["severity"])
+                if sig not in existing_alerts:
+                    write(
+                        """INSERT INTO alerts(created_at, zone, disaster_type, severity, eta_hours, radius_km,
+                           sms_status, source, cap_identifier, cap_sender, cap_headline, cap_area_desc)
+                           VALUES (:t, :z, :d, :s, :e, :r, 'QUEUED', 'NDMA SACHET CAP XML', :ci, :cs, :ch, :ca)""",
+                        t=now(), z=rec["zone"], d=rec["disaster_type"], s=rec["severity"],
+                        e=rec["eta_hours"], r=rec["radius_km"],
+                        ci=str(rec.get("identifier") or ident),
+                        cs=str(rec.get("sender") or "NDMA-SACHET"),
+                        ch=str(rec.get("headline") or title),
+                        ca=str(rec.get("area_desc") or rec["zone"]),
+                    )
+                    existing_alerts.add(sig)
+                    inserted_alerts += 1
+
+                cap_prob = 0.88 if rec["severity"] == "Red" else (0.68 if rec["severity"] == "Orange" else 0.45)
+                lat, lon = demo.zone_position(rec["zone"])
+                write(
+                    """INSERT INTO risk_logs(timestamp, zone, lat, lon, disaster_type, probability, source)
+                       VALUES (:t, :z, :la, :lo, :d, :p, 'NDMA SACHET CAP XML')""",
+                    t=now(), z=rec["zone"], la=lat, lo=lon, d=rec["disaster_type"], p=cap_prob,
+                )
+                inserted_risks += 1
+
+        if logged_xml_items > 0 and feed_label == "NDMA SACHET Maharashtra RSS":
+            break
+
+    status_msg = (
+        f"NDMA SACHET CAP XML sync: {len(feeds_checked)} feed(s) polled, "
+        f"{logged_xml_items} CAP XML item(s) parsed, {inserted_alerts} district alert(s) queued, "
+        f"{etags_reused} ETag cache hit(s)."
+    )
+    if inserted_alerts or inserted_risks:
+        event("ALERT_QUEUED", status_msg, do_replan=True)
+    else:
+        log_event("ALERT_QUEUED", status_msg)
+    return {
+        "source": "NDMA SACHET CAP XML",
+        "feeds_polled": feeds_checked,
+        "xml_items_logged": logged_xml_items,
+        "alerts_queued": inserted_alerts,
+        "risks_logged": inserted_risks,
+        "etag_hits": etags_reused,
+        "message": status_msg,
+    }
+
+
+def sync_gdacs_xml(max_items=20):
+    """Poll the UN/EC GDACS Multi-Hazard CAP/RSS XML feed (https://www.gdacs.org/xml/rss.xml)."""
+    ensure_telemetry_schema()
+    inserted = 0
+    logged_items = 0
+    existing_feed_ids = {
+        (r["feed_source"], r["identifier"], r["headline"])
+        for r in read("SELECT feed_source, identifier, headline FROM cap_feed_logs")
+    }
+    try:
+        xml_bytes, _, etag_status = fetch_with_etag(GDACS_RSS_URL, timeout=6)
+        root = ET.fromstring(xml_bytes)
+    except Exception as exc:
+        msg = f"GDACS XML feed poll skipped/unreachable ({type(exc).__name__}). Stored alerts unchanged."
+        log_event("SYSTEM", msg)
+        return {"source": "GDACS XML", "alerts_queued": 0, "xml_items_logged": 0, "message": msg}
+
+    items = root.findall(".//item") or root.findall(".//{*}item")
+    for item in items[:max_items]:
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        pub_date = (item.findtext("pubDate") or now()).strip()
+        guid = (item.findtext("guid") or title[:32]).strip()
+        country = (item.findtext("gdacs:country", default="", namespaces=GDACS_NS) or "").strip()
+        ev_type = (item.findtext("gdacs:eventtype", default="", namespaces=GDACS_NS) or "").strip().upper()
+        alert_lvl = (item.findtext("gdacs:alertlevel", default="Green", namespaces=GDACS_NS) or "").strip().capitalize()
+        lat_txt = item.findtext("geo:lat", default="", namespaces=GDACS_NS)
+        lon_txt = item.findtext("geo:long", default="", namespaces=GDACS_NS)
+
+        hazard_map = {"TC": "Cyclone", "FL": "Flood", "EQ": "Earthquake", "DR": "Heatwave", "WF": "Cyclone"}
+        hazard = hazard_map.get(ev_type, map_cap_hazard(title))
+        sev_word = "Red" if alert_lvl == "Red" else ("Orange" if alert_lvl == "Orange" else "Yellow")
+
+        matched_zone = None
+        if lat_txt and lon_txt:
+            try:
+                matched_zone, _ = nearest_monitored_zone(float(lat_txt), float(lon_txt), max_km=350.0)
+            except Exception:
+                matched_zone = None
+        if not matched_zone and ("india" in country.lower() or "india" in title.lower()):
+            zones_found = _match_zones_in_text(title)
+            matched_zone = zones_found[0] if zones_found else None
+
+        # Record top GDACS XML feed items in cap_feed_logs so the operator can inspect the live XML stream
+        if logged_items < 8 or matched_zone:
+            feed_sig = ("GDACS Multi-Hazard XML", guid, title)
+            if feed_sig not in existing_feed_ids:
+                write(
+                    """INSERT INTO cap_feed_logs(fetched_at, feed_source, identifier, sender, event, severity,
+                       urgency, area_desc, matched_zone, headline, pub_date, xml_url, etag_status)
+                       VALUES (:fa, 'GDACS Multi-Hazard XML', :id, 'UN-OCHA / EC GDACS', :ev, :sv,
+                       'Expected', :ar, :mz, :hl, :pd, :xu, :et)""",
+                    fa=now(),
+                    id=guid,
+                    ev=f"{hazard} ({ev_type or 'CAP'})",
+                    sv=f"{alert_lvl} ({sev_word})",
+                    ar=country or "Global / Indian Ocean",
+                    mz=matched_zone or "Global Watch (Outside 7 Zones)",
+                    hl=title,
+                    pd=pub_date,
+                    xu=link or GDACS_RSS_URL,
+                    et=str(etag_status),
+                )
+                existing_feed_ids.add(feed_sig)
+                logged_items += 1
+
+        if not matched_zone:
+            continue
+
+        write(
+            """INSERT INTO alerts(created_at, zone, disaster_type, severity, eta_hours, radius_km,
+               sms_status, source, cap_identifier, cap_sender, cap_headline, cap_area_desc)
+               VALUES (:t, :z, :d, :s, 18, 50, 'QUEUED', 'GDACS XML', :ci, 'UN/EC GDACS', :ch, :ca)""",
+            t=now(), z=matched_zone, d=hazard, s=sev_word,
+            ci=guid, ch=title, ca=country or matched_zone,
+        )
+        inserted += 1
+
+    msg = f"GDACS Multi-Hazard XML sync: {logged_items} XML item(s) logged, {inserted} Maharashtra/Konkan alert(s) matched."
+    if inserted:
+        event("ALERT_QUEUED", msg, do_replan=True)
+    else:
+        log_event("SYSTEM", msg)
+    return {"source": "GDACS XML", "alerts_queued": inserted, "xml_items_logged": logged_items, "message": msg}
+
+
+def _derive_weather_hazard(zone_name, temp_c, precip_mm, wind_kmh, gusts_kmh, pressure_hpa, base_hazard):
+    """Convert real-time Open-Meteo / IMD meteorological parameters into (disaster_type, probability 0..1)."""
+    wind_factor = max(0.0, (float(wind_kmh or 0.0) - 20.0) / 75.0)
+    gust_factor = max(0.0, (float(gusts_kmh or 0.0) - 30.0) / 95.0)
+    press_drop = max(0.0, (1008.0 - float(pressure_hpa or 1010.0)) / 35.0) if pressure_hpa else 0.0
+    cyclone_prob = min(0.98, round(0.45 * gust_factor + 0.35 * wind_factor + 0.20 * press_drop, 2))
+
+    rain_val = float(precip_mm or 0.0)
+    flood_prob = min(0.98, round(rain_val / 35.0, 2))
+
+    temp_val = float(temp_c or 28.0)
+    heat_prob = min(0.98, round(max(0.0, (temp_val - 33.0) / 14.0), 2))
+
+    landslide_prob = min(0.95, round(flood_prob * 0.85, 2)) if zone_name in ("Raigad", "Ratnagiri", "Sindhudurg", "Pune") else 0.0
+
+    candidates = [
+        ("Cyclone", cyclone_prob),
+        ("Flood", flood_prob),
+        ("Heatwave", heat_prob),
+        ("Landslide", landslide_prob),
+    ]
+    best_type, best_prob = max(candidates, key=lambda item: item[1])
+    if best_prob < 0.08:
+        micro_prob = round(min(0.45, max(0.06, (float(gusts_kmh or 10.0) / 140.0) + (max(0.0, temp_val - 24.0) / 80.0))), 2)
+        return base_hazard, micro_prob
+    return best_type, best_prob
+
+
+def sync_open_meteo_risk():
+    """Fetch live meteorological telemetry from Open-Meteo API for all 7 Maharashtra zones
+    and store temperature (°C), wind speed (km/h), wind gusts (km/h), precipitation (mm),
+    and surface pressure (hPa) directly in `risk_logs`."""
+    ensure_telemetry_schema()
+    zones = read("SELECT name, lat, lon FROM zones ORDER BY name")
+    if not zones:
+        return {"source": "Open-Meteo API", "updated_zones": 0, "message": "No monitored zones found."}
+
+    lats = ",".join(f"{z['lat']:.4f}" for z in zones)
+    lons = ",".join(f"{z['lon']:.4f}" for z in zones)
+    params = urllib.parse.urlencode({
+        "latitude": lats,
+        "longitude": lons,
+        "current": "temperature_2m,precipitation,rain,showers,weather_code,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
+        "timezone": "Asia/Kolkata",
+    })
+    url = f"{OPEN_METEO_URL}?{params}"
+    updated = 0
+    details = []
+
+    try:
+        raw_bytes, _, _ = fetch_with_etag(url, timeout=6)
+        payload = json.loads(raw_bytes.decode("utf-8"))
+        records = payload if isinstance(payload, list) else [payload]
+        with transaction():
+            for z, rec in zip(zones, records):
+                cur = (rec or {}).get("current") or {}
+                temp_c = float(cur.get("temperature_2m") if cur.get("temperature_2m") is not None else 29.0)
+                precip_mm = float(cur.get("precipitation") if cur.get("precipitation") is not None else 0.0)
+                wind_kmh = float(cur.get("wind_speed_10m") if cur.get("wind_speed_10m") is not None else 12.0)
+                gusts_kmh = float(cur.get("wind_gusts_10m") if cur.get("wind_gusts_10m") is not None else wind_kmh)
+                pressure_hpa = float(cur.get("surface_pressure") if cur.get("surface_pressure") is not None else 1009.0)
+                base_dtype = demo.BASE_RISK.get(z["name"], ("Flood", 0.25))[0]
+                dtype, prob = _derive_weather_hazard(
+                    z["name"], temp_c, precip_mm, wind_kmh, gusts_kmh, pressure_hpa, base_dtype
+                )
+                write(
+                    """INSERT INTO risk_logs(timestamp, zone, lat, lon, disaster_type, probability, source,
+                       temp_c, wind_kmh, gusts_kmh, precip_mm, pressure_hpa)
+                       VALUES (:t, :z, :la, :lo, :d, :p, 'Open-Meteo Live API', :tc, :wk, :gk, :pm, :ph)""",
+                    t=now(), z=z["name"], la=z["lat"], lo=z["lon"], d=dtype, p=float(prob),
+                    tc=round(temp_c, 1), wk=round(wind_kmh, 1), gk=round(gusts_kmh, 1),
+                    pm=round(precip_mm, 2), ph=round(pressure_hpa, 1),
+                )
+                updated += 1
+                details.append(f"{z['name']}: {dtype} {prob:.0%} ({temp_c:.1f}°C, gusts {gusts_kmh:.1f} km/h, rain {precip_mm:.1f} mm, {pressure_hpa:.1f} hPa)")
+    except Exception as exc:
+        msg = f"Open-Meteo API request could not complete ({type(exc).__name__}). Existing risk readings retained."
+        log_event("SYSTEM", msg)
+        return {"source": "Open-Meteo Live API", "updated_zones": 0, "message": msg}
+
+    summary = f"Open-Meteo Live API updated {updated} Maharashtra zones ({'; '.join(details[:3])}...)."
+    event("RISK_UPDATED", summary, do_replan=True)
+    return {"source": "Open-Meteo Live API", "updated_zones": updated, "details": details, "message": summary}
+
+
+def latest_zone_telemetry():
+    """Return zone -> latest risk_logs row with live weather telemetry (temp_c, wind_kmh, gusts_kmh, precip_mm, pressure_hpa, source)."""
+    ensure_telemetry_schema()
+    rows = read(
+        """SELECT zone, timestamp, disaster_type, probability, source, temp_c, wind_kmh, gusts_kmh, precip_mm, pressure_hpa
+           FROM risk_logs WHERE id IN (SELECT MAX(id) FROM risk_logs GROUP BY zone)"""
+    )
+    return {r["zone"]: r for r in rows}
+
+
+def sync_usgs_and_eonet_intake():
+    """Fetch real-time seismic events from USGS GeoJSON API and wildfire/storm events from NASA FIRMS / EONET,
+    and submit them directly into Intake & Triage (`citizen_reports`) via `intake_agent.submit()`."""
+    import intake_agent
+
+    submitted = 0
+    sources_polled = []
+    existing_descriptions = {
+        r["description"] for r in read("SELECT description FROM citizen_reports") if r.get("description")
+    }
+
+    usgs_params = urllib.parse.urlencode({
+        "format": "geojson",
+        "minlatitude": "14.0",
+        "maxlatitude": "22.5",
+        "minlongitude": "70.0",
+        "maxlongitude": "78.0",
+        "minmagnitude": "2.5",
+        "limit": "10",
+        "orderby": "time",
+    })
+    try:
+        usgs_bytes, _, _ = fetch_with_etag(f"{USGS_GEOJSON_URL}?{usgs_params}", timeout=6)
+        usgs_data = json.loads(usgs_bytes.decode("utf-8"))
+        sources_polled.append("USGS GeoJSON API")
+        for feat in (usgs_data.get("features") or [])[:8]:
+            props = feat.get("properties") or {}
+            geom = feat.get("geometry") or {}
+            coords = geom.get("coordinates") or []
+            if len(coords) < 2:
+                continue
+            lon, lat = float(coords[0]), float(coords[1])
+            mag = float(props.get("mag") or 3.0)
+            place = str(props.get("place") or "Western India region")
+            zone_name, dist_km = nearest_monitored_zone(lat, lon, max_km=400.0)
+            if not zone_name:
+                continue
+            urgency = "CRITICAL" if mag >= 5.5 else ("HIGH" if mag >= 4.5 else ("MEDIUM" if mag >= 3.5 else "LOW"))
+            est_people = max(10, int(round((mag ** 2) * 15)))
+            desc = (
+                f"[USGS LIVE GEOJSON] M{mag:.1f} earthquake tremor detected near {place} "
+                f"({dist_km} km from {zone_name}). Coordinates ({lat:.3f}, {lon:.3f})."
+            )
+            if desc not in existing_descriptions:
+                intake_agent.submit({
+                    "source": "usgs_api",
+                    "zone": zone_name,
+                    "lat": lat,
+                    "lon": lon,
+                    "people": est_people,
+                    "disaster_type": "Earthquake",
+                    "urgency": urgency,
+                    "description": desc,
+                    "synthetic": 0,
+                })
+                existing_descriptions.add(desc)
+                submitted += 1
+    except Exception:
+        pass
+
+    firms_key = os.environ.get("NASA_FIRMS_KEY", "").strip()
+    if firms_key:
+        firms_url = f"{NASA_FIRMS_AREA_URL}/{firms_key}/VIIRS_SNPP_NRT/72.0,15.5,75.5,20.5/1"
+        try:
+            csv_bytes, _, _ = fetch_with_etag(firms_url, timeout=6)
+            sources_polled.append("NASA FIRMS VIIRS API")
+            reader = csv.DictReader(io.StringIO(csv_bytes.decode("utf-8", errors="ignore")))
+            for idx, row in enumerate(reader):
+                if idx >= 5:
+                    break
+                lat = float(row.get("latitude") or 0.0)
+                lon = float(row.get("longitude") or 0.0)
+                frp = float(row.get("frp") or 10.0)
+                zone_name, _ = nearest_monitored_zone(lat, lon, max_km=120.0)
+                if not zone_name:
+                    continue
+                desc = (
+                    f"[NASA FIRMS LIVE] VIIRS thermal fire anomaly in {zone_name} "
+                    f"(FRP {frp:.1f} MW at {lat:.3f}, {lon:.3f})."
+                )
+                if desc not in existing_descriptions:
+                    intake_agent.submit({
+                        "source": "nasa_firms_api",
+                        "zone": zone_name,
+                        "lat": lat,
+                        "lon": lon,
+                        "people": max(15, int(round(frp * 2))),
+                        "disaster_type": "Fire",
+                        "urgency": "HIGH" if frp >= 25 else "MEDIUM",
+                        "description": desc,
+                        "synthetic": 0,
+                    })
+                    existing_descriptions.add(desc)
+                    submitted += 1
+        except Exception:
+            pass
+
+    try:
+        eonet_bytes, _, _ = fetch_with_etag(f"{NASA_EONET_URL}?status=open&limit=25", timeout=6)
+        eonet_data = json.loads(eonet_bytes.decode("utf-8"))
+        sources_polled.append("NASA EONET v3 API")
+        for ev in eonet_data.get("events") or []:
+            title = str(ev.get("title") or "")
+            cats = [str(c.get("title") or "") for c in (ev.get("categories") or [])]
+            geoms = ev.get("geometry") or []
+            if not geoms:
+                continue
+            coords = geoms[-1].get("coordinates") or []
+            if len(coords) < 2 or not isinstance(coords[0], (int, float)):
+                continue
+            lon, lat = float(coords[0]), float(coords[1])
+            zone_name, dist_km = nearest_monitored_zone(lat, lon, max_km=450.0)
+            if not zone_name:
+                continue
+            cat_text = " ".join(cats) + " " + title
+            dtype = "Fire" if "fire" in cat_text.lower() else map_cap_hazard(cat_text)
+            desc = f"[NASA EONET LIVE] {title} ({dist_km} km from {zone_name}, coords {lat:.3f}, {lon:.3f})."
+            if desc not in existing_descriptions:
+                intake_agent.submit({
+                    "source": "nasa_eonet_api",
+                    "zone": zone_name,
+                    "lat": lat,
+                    "lon": lon,
+                    "people": 25,
+                    "disaster_type": dtype,
+                    "urgency": "HIGH",
+                    "description": desc,
+                    "synthetic": 0,
+                })
+                existing_descriptions.add(desc)
+                submitted += 1
+    except Exception:
+        pass
+
+    msg = (
+        f"Live Incident Intake API sync ({', '.join(sources_polled) or 'offline'}): "
+        f"{submitted} new regional event(s) triaged into Citizen Reports queue."
+    )
+    log_event("INTAKE_SUBMITTED", msg)
+    return {"sources": sources_polled, "submitted": submitted, "message": msg}
+
+
+def sync_live_roads_osrm():
+    """Update corridor travel minutes and road conditions across R1-R20 using OpenRouteService / OSRM Driving API
+    combined with live zone flood/cyclone hazard readings."""
+    roads = roads_with_positions()
+    ors_key = os.environ.get("ORS_API_KEY", "").strip()
+    latest_risks = {
+        r["zone"]: float(r["probability"] or 0.0)
+        for r in read("SELECT zone, probability FROM risk_logs WHERE id IN (SELECT MAX(id) FROM risk_logs GROUP BY zone)")
+    }
+    updated_count = 0
+    api_used = "OSRM / Live Corridor Telemetry"
+
+    for road in roads:
+        a_lat, a_lon = road.get("a_lat"), road.get("a_lon")
+        b_lat, b_lon = road.get("b_lat"), road.get("b_lon")
+        if None in (a_lat, a_lon, b_lat, b_lon):
+            continue
+
+        live_minutes = None
+        if ors_key:
+            try:
+                ors_url = (
+                    f"{ORS_DIRECTIONS_URL}?api_key={urllib.parse.quote(ors_key)}"
+                    f"&start={a_lon:.4f},{a_lat:.4f}&end={b_lon:.4f},{b_lat:.4f}"
+                )
+                raw, _, _ = fetch_with_etag(ors_url, timeout=4)
+                doc = json.loads(raw.decode("utf-8"))
+                secs = doc["features"][0]["properties"]["summary"]["duration"]
+                live_minutes = max(5.0, round(float(secs) / 60.0, 1))
+                api_used = "OpenRouteService Directions API"
+            except Exception:
+                live_minutes = None
+
+        if live_minutes is None:
+            try:
+                osrm_url = f"{OSRM_ROUTE_URL}/{a_lon:.4f},{a_lat:.4f};{b_lon:.4f},{b_lat:.4f}?overview=false"
+                raw, _, _ = fetch_with_etag(osrm_url, timeout=4)
+                doc = json.loads(raw.decode("utf-8"))
+                if doc.get("routes"):
+                    secs = doc["routes"][0]["duration"]
+                    live_minutes = max(5.0, round(float(secs) / 60.0, 1))
+                    api_used = "OSRM Routing API"
+            except Exception:
+                live_minutes = None
+
+        base_mins = float(road["minutes"])
+        if live_minutes is not None:
+            write("UPDATE roads SET minutes=:m WHERE id=:i", m=live_minutes, i=road["id"])
+            updated_count += 1
+
+        end_risk = max(latest_risks.get(road["a"], 0.0), latest_risks.get(road["b"], 0.0))
+        if road["status"] != "BLOCKED":
+            new_status = "SLOW" if (end_risk >= 0.78 or (live_minutes and live_minutes > base_mins * 1.45)) else "OPEN"
+            if new_status != road["status"]:
+                write("UPDATE roads SET status=:s WHERE id=:i", s=new_status, i=road["id"])
+                updated_count += 1
+
+    msg = f"{api_used} synced {updated_count} corridor travel-time / status updates across R1–R20."
+    if updated_count > 0:
+        event("ROAD_REOPENED", msg, do_replan=True)
+    else:
+        log_event("SYSTEM", msg)
+    return {"source": api_used, "updated_roads": updated_count, "message": msg}
+
+
+def sync_all_live_feeds():
+    """Execute a complete multi-agency real-time API and CAP 1.2 XML sync across all Saarthi modules:
+    1. Open-Meteo / IMD live district weather & hazard probabilities (`risk_logs`)
+    2. NDMA SACHET CAP 1.2 XML + Maharashtra/India RSS feeds with ETag caching (`alerts`, `cap_feed_logs`, `risk_logs`)
+    3. GDACS UN/EC Multi-Hazard XML feed (`alerts` & `cap_feed_logs`)
+    4. USGS Earthquake GeoJSON + NASA FIRMS/EONET active fire feeds (`citizen_reports`)
+    5. OpenRouteService / OSRM live road corridor travel durations (`roads`)
+    """
+    ensure_telemetry_schema()
+    meteo = sync_open_meteo_risk()
+    sachet = sync_sachet_cap_xml()
+    gdacs = sync_gdacs_xml()
+    intake = sync_usgs_and_eonet_intake()
+    routing = sync_live_roads_osrm()
+    summary = (
+        f"Live API & XML Sync Complete — Open-Meteo: {meteo['updated_zones']} zones | "
+        f"NDMA SACHET CAP XML: {sachet.get('xml_items_logged', 0)} XML items ({sachet['alerts_queued']} district alerts, {sachet['etag_hits']} ETag hits) | "
+        f"GDACS XML: {gdacs.get('xml_items_logged', 0)} XML items ({gdacs['alerts_queued']} alerts) | "
+        f"USGS/NASA Intake: {intake['submitted']} reports | "
+        f"Routing API: {routing['updated_roads']} corridors."
+    )
+    event("RISK_UPDATED", summary, do_replan=True)
+    return {
+        "meteo": meteo,
+        "sachet": sachet,
+        "gdacs": gdacs,
+        "intake": intake,
+        "routing": routing,
+        "summary": summary,
+    }
+
+
+def has_live_telemetry():
+    """Return True if the database currently holds live API or CAP XML telemetry rows."""
+    ensure_telemetry_schema()
+    live_rows = read(
+        "SELECT COUNT(*) AS n FROM risk_logs WHERE source NOT IN ('IMD (demo)', 'Operator-entered')"
+    )
+    if live_rows and int(live_rows[0]["n"] or 0) > 0:
+        return True
+    cap_rows = read("SELECT COUNT(*) AS n FROM cap_feed_logs")
+    if cap_rows and int(cap_rows[0]["n"] or 0) > 0:
+        return True
+    live_events = read(
+        "SELECT COUNT(*) AS n FROM events WHERE message LIKE '%NDMA SACHET%' OR message LIKE '%Open-Meteo%' OR message LIKE '%Live API%'"
+    )
+    return bool(live_events and int(live_events[0]["n"] or 0) > 0)
+
+
+# =====================================================================
+# VOLUNTEERS & RESCUE TASKS (NGO Teams, Rescue Tasks, Assignments, Dispatch)
+# ---------------------------------------------------------------------
+# Assignment does not dispatch a team. Dispatch and rescue progress are
+# operator actions. SOS incidents are left unchanged.
+# =====================================================================
+RESCUE_PRIORITIES = ("Critical", "High", "Moderate", "Low")
+RESCUE_PROGRESS_STATES = ("IN_PROGRESS", "RESCUED", "COMPLETED")
+
+
+def register_volunteer_team(team_name, team_lead, head_role, home_zone, focus_area, capacity):
+    """Register an NGO / volunteer team as AVAILABLE."""
+    ensure_telemetry_schema()
+    t_name = str(team_name or "").strip()
+    t_lead = str(team_lead or "").strip()
+    h_role = str(head_role or "Team lead").strip() or "Team lead"
+    z_name = str(home_zone or "").strip()
+    f_area = str(focus_area or "Rescue").strip() or "Rescue"
+    if not t_name:
+        raise ActionError("NGO / team name is required.")
+    if not t_lead:
+        raise ActionError("Team lead name is required.")
+    if z_name not in [z[0] for z in demo.ZONES]:
+        raise ActionError("Select a recorded home zone.")
+    if isinstance(capacity, bool) or not isinstance(capacity, (int, float)) or int(capacity) < 1:
+        raise ActionError("Volunteer capacity must be at least 1.")
+    cap = int(capacity)
+    with transaction():
+        team_id = write(
+            """INSERT INTO volunteer_teams(registered_at, team_name, team_lead, head_role, home_zone, focus_area, capacity, status)
+               VALUES (:t, :tn, :tl, :hr, :hz, :fa, :c, 'AVAILABLE')""",
+            t=now(), tn=t_name, tl=t_lead, hr=h_role, hz=z_name, fa=f_area, c=cap,
+        )
+        log_event("VOLUNTEER_TEAM_REGISTERED", f"NGO team #{team_id} '{t_name}' ({cap} volunteers, lead {t_lead}) registered in {z_name}")
+    return team_id
+
+
+def create_rescue_task(title, zone, priority, people, location_note=""):
+    """Record a new OPEN rescue task with coordinates near the zone centre."""
+    ensure_telemetry_schema()
+    t_title = str(title or "").strip()
+    z_name = str(zone or "").strip()
+    prio = str(priority or "Critical").strip()
+    loc_note = str(location_note or "").strip()
+    if not t_title:
+        raise ActionError("Task title is required.")
+    if z_name not in [z[0] for z in demo.ZONES]:
+        raise ActionError("Select a recorded affected zone.")
+    if prio not in RESCUE_PRIORITIES:
+        raise ActionError("Priority must be Critical, High, Moderate, or Low.")
+    if isinstance(people, bool) or not isinstance(people, (int, float)) or int(people) < 1:
+        raise ActionError("People requiring assistance must be at least 1.")
+    cnt = int(people)
+    lat, lon = demo.zone_position(z_name)
+    existing_n = len(read("SELECT id FROM rescue_tasks WHERE zone=:z", z=z_name))
+    offset_lat = ((existing_n % 5) - 2) * 0.018 + 0.022
+    offset_lon = ((existing_n % 3) - 1) * 0.018 - 0.022
+    with transaction():
+        task_id = write(
+            """INSERT INTO rescue_tasks(created_at, title, zone, lat, lon, priority, people, location_note, status, assigned_team_id, assigned_team_name)
+               VALUES (:t, :ti, :z, :la, :lo, :pr, :pe, :ln, 'OPEN', NULL, NULL)""",
+            t=now(), ti=t_title, z=z_name, la=round(lat + offset_lat, 4), lo=round(lon + offset_lon, 4),
+            pr=prio, pe=cnt, ln=loc_note or "Zone centre sector",
+        )
+        log_event("RESCUE_TASK_CREATED", f"Rescue task #{task_id} '{t_title}' ({prio}, {cnt} people) recorded in {z_name}")
+    return task_id
+
+
+def assign_volunteer_team(task_id, team_id):
+    """Assign an AVAILABLE NGO team to an OPEN rescue task. Assignment does not dispatch the team."""
+    ensure_telemetry_schema()
+    with transaction():
+        tasks = read("SELECT * FROM rescue_tasks WHERE id=:i", i=int(task_id))
+        if not tasks:
+            raise ActionError("That rescue task does not exist.")
+        task = tasks[0]
+        if task["status"] != "OPEN":
+            raise ActionError("That rescue task is no longer open for assignment.")
+        teams = read("SELECT * FROM volunteer_teams WHERE id=:i", i=int(team_id))
+        if not teams:
+            raise ActionError("That NGO team does not exist.")
+        team = teams[0]
+        if team["status"] != "AVAILABLE":
+            raise ActionError("That NGO team is not currently available.")
+        ts = now()
+        aid = write(
+            """INSERT INTO volunteer_assignments(assigned_at, updated_at, task_id, task_title, zone, priority, people,
+               team_id, team_name, team_lead, volunteers, status)
+               VALUES (:t, :t, :tk, :tt, :z, :pr, :pe, :tm, :tn, :tl, :v, 'ASSIGNED')""",
+            t=ts, tk=task["id"], tt=task["title"], z=task["zone"], pr=task["priority"], pe=task["people"],
+            tm=team["id"], tn=team["team_name"], tl=team["team_lead"], v=team["capacity"],
+        )
+        write("UPDATE rescue_tasks SET status='ASSIGNED', assigned_team_id=:tm, assigned_team_name=:tn WHERE id=:i",
+              tm=team["id"], tn=team["team_name"], i=task["id"])
+        write("UPDATE volunteer_teams SET status='ASSIGNED' WHERE id=:i", i=team["id"])
+        write(
+            """INSERT INTO volunteer_status_history(timestamp, assignment_id, task_id, task_title, team_id, team_name, status, note)
+               VALUES (:t, :a, :tk, :tt, :tm, :tn, 'ASSIGNED', 'Operator assigned team to rescue task (not dispatched yet)')""",
+            t=ts, a=aid, tk=task["id"], tt=task["title"], tm=team["id"], tn=team["team_name"],
+        )
+        log_event("VOLUNTEER_ASSIGNED", f"Assigned '{team['team_name']}' to rescue task #{task['id']} ({task['zone']}). Not dispatched yet.")
+    return aid
+
+
+def dispatch_volunteer_assignment(assignment_id):
+    """Operator action: dispatch an ASSIGNED team to its rescue task."""
+    ensure_telemetry_schema()
+    with transaction():
+        rows = read("SELECT * FROM volunteer_assignments WHERE id=:i", i=int(assignment_id))
+        if not rows:
+            raise ActionError("That assignment does not exist.")
+        row = rows[0]
+        if row["status"] != "ASSIGNED":
+            raise ActionError("Only an ASSIGNED team waiting for dispatch can be dispatched.")
+        ts = now()
+        write("UPDATE volunteer_assignments SET status='DISPATCHED', updated_at=:t WHERE id=:i", t=ts, i=row["id"])
+        write("UPDATE rescue_tasks SET status='DISPATCHED' WHERE id=:i", i=row["task_id"])
+        write("UPDATE volunteer_teams SET status='DEPLOYED' WHERE id=:i", i=row["team_id"])
+        write(
+            """INSERT INTO volunteer_status_history(timestamp, assignment_id, task_id, task_title, team_id, team_name, status, note)
+               VALUES (:t, :a, :tk, :tt, :tm, :tn, 'DISPATCHED', 'Operator dispatched team to field rescue task')""",
+            t=ts, a=row["id"], tk=row["task_id"], tt=row["task_title"], tm=row["team_id"], tn=row["team_name"],
+        )
+        log_event("VOLUNTEER_DISPATCHED", f"Dispatched '{row['team_name']}' for rescue task #{row['task_id']} ({row['zone']})")
+
+
+def update_rescue_progress(assignment_id, new_status, note=""):
+    """Operator action: record IN_PROGRESS, RESCUED, or COMPLETED after dispatch."""
+    ensure_telemetry_schema()
+    target_status = str(new_status or "").strip().upper()
+    if target_status not in RESCUE_PROGRESS_STATES:
+        raise ActionError("Status must be IN_PROGRESS, RESCUED, or COMPLETED.")
+    with transaction():
+        rows = read("SELECT * FROM volunteer_assignments WHERE id=:i", i=int(assignment_id))
+        if not rows:
+            raise ActionError("That assignment does not exist.")
+        row = rows[0]
+        if row["status"] == "ASSIGNED":
+            raise ActionError("Dispatch a team before recording IN_PROGRESS, RESCUED, or COMPLETED.")
+        if row["status"] == "COMPLETED":
+            raise ActionError("This rescue assignment is already completed.")
+        ts = now()
+        clean_note = str(note or "").strip() or f"Operator recorded {target_status}"
+        write("UPDATE volunteer_assignments SET status=:s, updated_at=:t WHERE id=:i", s=target_status, t=ts, i=row["id"])
+        write("UPDATE rescue_tasks SET status=:s WHERE id=:i", s=target_status, i=row["task_id"])
+        if target_status == "COMPLETED":
+            write("UPDATE volunteer_teams SET status='AVAILABLE' WHERE id=:i", i=row["team_id"])
+        else:
+            write("UPDATE volunteer_teams SET status='DEPLOYED' WHERE id=:i", i=row["team_id"])
+        write(
+            """INSERT INTO volunteer_status_history(timestamp, assignment_id, task_id, task_title, team_id, team_name, status, note)
+               VALUES (:t, :a, :tk, :tt, :tm, :tn, :s, :n)""",
+            t=ts, a=row["id"], tk=row["task_id"], tt=row["task_title"], tm=row["team_id"], tn=row["team_name"],
+            s=target_status, n=clean_note,
+        )
+        log_event("RESCUE_" + target_status, f"Rescue task #{row['task_id']} ({row['team_name']}): {target_status}")
