@@ -592,8 +592,11 @@ def _place_labels(frame, text_column, offset):
                      get_background_color=[255, 255, 255, 230], background_padding=[4, 2, 4, 2], pickable=False)
 
 
-def draw_map(layers, height=540, key="map"):  # prominent GIS map with switchable layers
+def draw_map(layers, height=540, key="map", extra_layers=None):  # prominent GIS map with switchable layers
     choices = ["Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments"]  # every layer
+    for name in extra_layers or ():
+        if name not in choices:
+            choices.append(name)
     shown = st.multiselect("Map Layers Control (Toggle Categories)", choices, default=layers, key=key)  # operator picks which to show
     deck_layers = []  # the pydeck layers to draw, bottom first
     labels = []  # place names drawn after the symbols
@@ -660,6 +663,24 @@ def draw_map(layers, height=540, key="map"):  # prominent GIS map with switchabl
                                          get_line_color=[16, 37, 54], stroked=True, filled=True, line_width_min_pixels=1.5,
                                          get_radius=6.5, radius_units=_PIXELS, pickable=True))
         legend.append((ORANGE, "Relief Shipment In Transit"))
+    if "Rescue tasks" in shown:  # volunteer page only; Situation Overview does not request this layer
+        tasks = data.rescue_task_markers()
+        if tasks:
+            frame = df(tasks)
+            frame["color"] = frame.apply(
+                lambda row: [100, 116, 139] if row["status"] == "COMPLETED" else LEVEL_RGB.get(row["priority"], LEVEL_RGB["Moderate"]),
+                axis=1)
+            frame["label"] = frame.apply(
+                lambda row: (f"Rescue #{row['id']} {row['title']}: {row['zone']}, {row['priority']}, "
+                             f"{row['people']} people, {row['status']}"),
+                axis=1)
+            deck_layers.append(pdk.Layer(
+                "ScatterplotLayer", frame, get_position="[lon, lat]", get_fill_color="color",
+                get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=9,
+                radius_units=_PIXELS, line_width_min_pixels=1.5, pickable=True))
+        for name in ("Critical", "High", "Moderate", "Low"):
+            legend.append((LEVEL_HEX[name], f"Rescue {name.lower()}"))
+        legend.append((MUTED_GREY, "Rescue completed"))
     deck_layers.extend(labels)
     render_deck(deck_layers, height, f"{key}_deck")
     map_legend(legend)
@@ -1666,6 +1687,227 @@ def page_requests():  # PAGE 7: SOS from the field
             request_table(rows)
         else:
             ui_info("No field requests yet.")
+
+
+def _volunteer_table(source, columns, status_key="status"):
+    status_class = {
+        "PENDING": "saarthi-rescue-pending",
+        "ASSIGNED": "saarthi-rescue-assigned",
+        "DISPATCHED": "saarthi-rescue-dispatched",
+        "IN_PROGRESS": "saarthi-rescue-progress",
+        "RESCUED": "saarthi-rescue-rescued",
+        "COMPLETED": "saarthi-rescue-completed",
+        "AVAILABLE": "saarthi-team-available",
+        "DEPLOYED": "saarthi-team-deployed",
+    }
+    head = "".join(f"<th>{html.escape(name)}</th>" for name in columns)
+    body = []
+    for row in source:
+        cells = []
+        for key in columns:
+            shown = row.get(key)
+            text = "not available" if shown is None or shown == "" else shown
+            escaped = html.escape(str(text))
+            if key == status_key:
+                cells.append(f'<td class="{status_class.get(row.get(key), "")}">{escaped}</td>')
+            else:
+                cells.append(f"<td>{escaped}</td>")
+        body.append("<tr>" + "".join(cells) + "</tr>")
+    st.markdown(
+        '<div class="saarthi-table-container">'
+        f'<table class="saarthi-requests"><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table>'
+        "</div>",
+        unsafe_allow_html=True)
+
+
+def page_volunteers():
+    """NGO teams and rescue tasks. Assignment and dispatch stay separate operator actions."""
+    page_fit_styles()
+    st.markdown(
+        f"""
+        <style>
+        .saarthi-rescue-pending {{ color: {MUTED_GREY}; font-weight: 600; }}
+        .saarthi-rescue-assigned, .saarthi-rescue-dispatched, .saarthi-team-deployed {{ color: {ORANGE}; font-weight: 600; }}
+        .saarthi-rescue-progress {{ color: {NAVY}; font-weight: 600; }}
+        .saarthi-rescue-rescued, .saarthi-rescue-completed, .saarthi-team-available {{ color: {TEAL}; font-weight: 600; }}
+        </style>
+        """,
+        unsafe_allow_html=True)
+    with st.container(border=True):
+        page_header("Volunteers",
+                    "Register NGO teams, record rescue tasks, then assign and dispatch them as separate steps.")
+        safety_notice("Assignment does not dispatch a team. Dispatch and rescue progress are operator actions. "
+                      "SOS incidents are left unchanged.")
+    counts = data.volunteer_dashboard()
+    metric_tiles((
+        ("NGO teams", counts["teams"], STEEL),
+        ("Total volunteers", counts["volunteers"], STEEL),
+        ("Available volunteers", counts["available"], TEAL),
+        ("Active rescue tasks", counts["active_tasks"], ORANGE),
+        ("Teams deployed", counts["deployed"], ORANGE),
+        ("Completed rescues", counts["completed"], TEAL),
+    ))
+    teams = data.list_ngo_teams()
+    tasks = data.list_rescue_tasks()
+    zones = [z[0] for z in data.demo.ZONES]
+    team_rows = [{
+        "id": row["id"],
+        "name": row["name"],
+        "lead": row["lead_name"] or "not available",
+        "head role": row["lead_role"],
+        "home zone": row["home_zone"],
+        "focus": row["focus"] or "not available",
+        "capacity": row["capacity"],
+        "available": row["available"],
+        "status": row["status"],
+    } for row in teams]
+    task_rows = [{
+        "id": row["id"],
+        "title": row["title"],
+        "location": f"{row['zone']} ({float(row['lat']):.4f}, {float(row['lon']):.4f})",
+        "zone": row["zone"],
+        "priority": row["priority"],
+        "people": row["people"],
+        "status": row["status"],
+    } for row in tasks]
+    listing, roster = st.columns([1.15, 1])
+    with listing:
+        with st.container(border=True):
+            st.subheader("NGO teams")
+            if team_rows:
+                _volunteer_table(team_rows, ("id", "name", "lead", "head role", "home zone", "focus",
+                                             "capacity", "available", "status"))
+            else:
+                ui_info("No NGO teams registered yet.")
+    with roster:
+        with st.container(border=True):
+            st.subheader("Rescue tasks")
+            if task_rows:
+                _volunteer_table(task_rows, ("id", "title", "location", "zone", "priority", "people", "status"))
+            else:
+                ui_info("No rescue tasks recorded yet.")
+    with st.container(border=True):
+        st.caption("Coastal Maharashtra map, with rescue-task markers added.")
+        draw_map(["Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments", "Rescue tasks"],
+                 height=540, key="vol_map", extra_layers=("Rescue tasks",))
+    register_col, task_col, assign_col = st.columns(3)
+    with register_col:
+        with st.container(border=True):
+            st.subheader("Register a team")
+            with st.form("vol_register", clear_on_submit=True):
+                name = st.text_input("NGO / team name")
+                lead = st.text_input("Team lead")
+                role = st.text_input("Head role", "Team lead")
+                home = st.selectbox("Home zone", zones)
+                focus = st.text_input("Focus area", "Rescue")
+                capacity = st.number_input("Volunteer capacity", 1, 5000, 12)
+                if st.form_submit_button("Register team", type="primary"):
+                    act(data.register_ngo_team, name, lead, role, home, focus, int(capacity),
+                        ok=f"{name} registered")
+    with task_col:
+        with st.container(border=True):
+            st.subheader("Create a rescue task")
+            with st.form("vol_task", clear_on_submit=True):
+                title = st.text_input("Task title")
+                zone = st.selectbox("Affected zone", zones, key="vol_task_zone")
+                priority = st.selectbox("Priority", data.RESCUE_PRIORITIES)
+                people = st.number_input("People requiring assistance", 1, 5000, 20)
+                detail = st.text_input("Location note")
+                if st.form_submit_button("Create rescue task", type="primary"):
+                    act(data.create_rescue_task, title, zone, priority, int(people), detail,
+                        ok="Rescue task recorded")
+    with assign_col:
+        with st.container(border=True):
+            st.subheader("Assign a team")
+            ready_teams = data.assignable_teams()
+            open_tasks = data.open_rescue_tasks()
+            if not ready_teams or not open_tasks:
+                ui_info("An available team and an open rescue task are both required.")
+            else:
+                team_by_id = {int(row["id"]): row for row in ready_teams}
+                task_by_id = {int(row["id"]): row for row in open_tasks}
+                with st.form("vol_assign"):
+                    team_id = st.selectbox(
+                        "Available team",
+                        list(team_by_id),
+                        format_func=lambda i: (
+                            f"{team_by_id[i]['name']} · {team_by_id[i]['available']} available · "
+                            f"{team_by_id[i]['home_zone']}"))
+                    task_id = st.selectbox(
+                        "Rescue task",
+                        list(task_by_id),
+                        format_func=lambda i: (
+                            f"#{task_by_id[i]['id']} {task_by_id[i]['title']} · "
+                            f"{task_by_id[i]['zone']} · {task_by_id[i]['status']}"))
+                    requested = st.number_input("Volunteers to assign", 1, 5000, 1)
+                    if st.form_submit_button("Assign team", type="primary"):
+                        act(data.assign_rescue_team, int(task_id), int(team_id), int(requested),
+                            ok="Team assigned. Dispatch is still a separate step.")
+    dispatch_col, progress_col = st.columns(2)
+    with dispatch_col:
+        with st.container(border=True):
+            st.subheader("Dispatch")
+            waiting = data.dispatchable_assignments()
+            if not waiting:
+                ui_info("No assigned team is waiting for dispatch.")
+            else:
+                waiting_by_id = {int(row["id"]): row for row in waiting}
+                with st.form("vol_dispatch"):
+                    chosen_id = st.selectbox(
+                        "Assigned team",
+                        list(waiting_by_id),
+                        format_func=lambda i: (
+                            f"Task #{waiting_by_id[i]['task_id']} {waiting_by_id[i]['title']} · "
+                            f"{waiting_by_id[i]['team_name']} · {waiting_by_id[i]['volunteers']} volunteers"))
+                    if st.form_submit_button("Dispatch team", type="primary"):
+                        act(data.dispatch_rescue_assignment, int(chosen_id), ok="Team dispatched")
+    with progress_col:
+        with st.container(border=True):
+            st.subheader("Rescue progress")
+            moving = data.progressable_tasks()
+            if not moving:
+                ui_info("Dispatch a team before recording IN_PROGRESS, RESCUED, or COMPLETED.")
+            else:
+                moving_by_id = {int(row["id"]): row for row in moving}
+                with st.form("vol_progress"):
+                    current_id = st.selectbox(
+                        "Dispatched rescue",
+                        list(moving_by_id),
+                        format_func=lambda i: (
+                            f"#{moving_by_id[i]['id']} {moving_by_id[i]['title']} · "
+                            f"{moving_by_id[i]['status']}"))
+                    later = data.next_rescue_statuses(moving_by_id[current_id]["status"])
+                    nxt = st.selectbox("Next status", later)
+                    if st.form_submit_button("Update status", type="primary"):
+                        act(data.update_rescue_progress, int(current_id), nxt, ok=f"Rescue marked {nxt}")
+    assignments = data.list_rescue_assignments()
+    with st.container(border=True):
+        st.subheader("Assignments")
+        if assignments:
+            _volunteer_table([{
+                "id": row["id"],
+                "task": f"#{row['task_id']} {row['title']}",
+                "team": row["team_name"],
+                "volunteers": row["volunteers"],
+                "assigned": row["assigned_at"],
+                "dispatched": row["dispatched_at"] or "not dispatched",
+                "status": row["status"],
+            } for row in assignments],
+                ("id", "task", "team", "volunteers", "assigned", "dispatched", "status"))
+        else:
+            ui_info("No team has been assigned yet.")
+        with st.expander("Status history"):
+            history = data.rescue_status_log()
+            if history:
+                _volunteer_table([{
+                    "id": row["id"],
+                    "task": row["task_id"],
+                    "status": row["status"],
+                    "changed": row["changed_at"],
+                    "note": row["note"],
+                } for row in history], ("id", "task", "status", "changed", "note"))
+            else:
+                st.caption("No status changes recorded.")
 
 
 def page_scenarios():  # PAGE 8: the scenario tests from our notes
@@ -3199,6 +3441,7 @@ PAGES = {  # menu label -> page function
     "Roads & Hospitals": page_network,
     "Supply Tracking": page_tracking,
     "Field Requests": page_requests,
+    "Volunteers": page_volunteers,
     "Intake & Triage": page_intake,
     "Ripple": page_ripple,
     "What-If": page_whatif,
@@ -3208,7 +3451,7 @@ PAGES = {  # menu label -> page function
 }
 NAV_GROUPS = (
     ("Monitor", ("Situation Overview", "Early Warnings", "Severity & Vulnerability")),
-    ("Respond", ("Allocation", "Roads & Hospitals", "Supply Tracking", "Field Requests")),
+    ("Respond", ("Allocation", "Roads & Hospitals", "Supply Tracking", "Field Requests", "Volunteers")),
     ("Analyse", ("Intake & Triage", "Ripple", "What-If", "Plan Challenger", "Coordinator")),
     ("Demo", ("Scenario Tests",)),
 )
