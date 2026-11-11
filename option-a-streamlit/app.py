@@ -32,6 +32,7 @@ import streamlit as st  # streamlit: turns this file into a web page
 import data  # our database and actions (data.py)
 import engine  # our decision logic (engine.py), used here only for small helpers
 import intake_agent  # citizen reports: classify, validate and prioritise
+import live_feeds  # read-only official/open hazard feeds; never writes the demo database
 import ripple_agent  # read-only cascade analysis; it does not change records
 import whatif_agent  # hypothetical scenarios on an in-memory copy; it does not write
 import plan_challenger_agent  # read-only review of the stored plan; it does not change records
@@ -681,6 +682,45 @@ def draw_map(layers, height=540, key="map", extra_layers=None):  # prominent GIS
         for name in ("Critical", "High", "Moderate", "Low"):
             legend.append((LEVEL_HEX[name], f"Rescue {name.lower()}"))
         legend.append((MUTED_GREY, "Rescue completed"))
+    if "Earthquakes" in shown:  # USGS live markers; Overview opts in via extra_layers only
+        try:
+            quakes = live_feeds.earthquake_markers()
+        except live_feeds.FeedError:
+            quakes = []
+        if quakes:
+            frame = df(quakes)
+            frame["color"] = [[180, 40, 40]] * len(frame)
+            deck_layers.append(pdk.Layer(
+                "ScatterplotLayer", frame, get_position="[lon, lat]", get_fill_color="color",
+                get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=8,
+                radius_units=_PIXELS, line_width_min_pixels=1.5, pickable=True))
+        legend.append((RED, "USGS earthquake"))
+    if "Active fires" in shown:  # NASA FIRMS; requires NASA_FIRMS_MAP_KEY
+        try:
+            fires = live_feeds.fire_markers()
+        except live_feeds.FeedError:
+            fires = []
+        if fires:
+            frame = df(fires)
+            frame["color"] = [[230, 100, 20]] * len(frame)
+            deck_layers.append(pdk.Layer(
+                "ScatterplotLayer", frame, get_position="[lon, lat]", get_fill_color="color",
+                get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=7,
+                radius_units=_PIXELS, line_width_min_pixels=1.5, pickable=True))
+        legend.append((ORANGE, "NASA FIRMS active fire"))
+    if "GDACS hazards" in shown:  # GDACS multi-hazard points
+        try:
+            hazards = live_feeds.gdacs_markers()
+        except live_feeds.FeedError:
+            hazards = []
+        if hazards:
+            frame = df(hazards)
+            frame["color"] = [[120, 60, 160]] * len(frame)
+            deck_layers.append(pdk.Layer(
+                "ScatterplotLayer", frame, get_position="[lon, lat]", get_fill_color="color",
+                get_line_color=[255, 255, 255], filled=True, stroked=True, get_radius=8,
+                radius_units=_PIXELS, line_width_min_pixels=1.5, pickable=True))
+        legend.append(("#783CA0", "GDACS hazard"))
     deck_layers.extend(labels)
     render_deck(deck_layers, height, f"{key}_deck")
     map_legend(legend)
@@ -749,7 +789,8 @@ def page_overview():  # PAGE 1: Unified Command-Centre Home Screen
     with map_col:
         with st.container(border=True):
             draw_map(["Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments"],
-                     height=540, key="ov_map")
+                     height=540, key="ov_map",
+                     extra_layers=("Earthquakes", "Active fires", "GDACS hazards"))
             # Selected Marker / Incident Inspector right beneath the map
             if active_incidents:
                 inc_options = [
@@ -1107,6 +1148,169 @@ def page_alerts():  # PAGE 2: early warnings
             else:
                 st.caption("No recorded risk readings.")
 
+    # Live official / open feeds. Read-only: nothing here writes alerts, risk_logs, or the plan.
+    with st.container(border=True):
+        page_header("Live official feeds",
+                    "Direct XML/API reads for situational awareness. These panels do not queue alerts, "
+                    "change beds, or replan allocation.")
+        keys = live_feeds.key_status()
+        st.caption(
+            f"Keys configured — IMD API: {'yes' if keys['imd_api_key'] else 'no'} · "
+            f"NASA FIRMS: {'yes' if keys['firms_map_key'] else 'no'} · "
+            f"OpenRouteService: {'yes' if keys['ors_api_key'] else 'no'} "
+            "(ORS is used on Roads & Hospitals)."
+        )
+        sachet_col, imd_col = st.columns(2)
+        with sachet_col:
+            st.subheader("NDMA SACHET CAP")
+            st.caption("All-India CAP RSS + CAP XML AOIs from sachet.ndma.gov.in.")
+            try:
+                sachet_rows = live_feeds.fetch_sachet_rss(limit=12)
+            except live_feeds.FeedError as exc:
+                ui_error(str(exc))
+                sachet_rows = []
+            if sachet_rows:
+                mh = [row for row in sachet_rows if row.get("maharashtra")]
+                st.caption(f"{len(sachet_rows)} latest national items · {len(mh)} mention Maharashtra keywords.")
+                render_df_table(pd.DataFrame([{
+                    "id": row["id"],
+                    "published": row["published"],
+                    "title": row["title"][:110],
+                    "MH": "yes" if row["maharashtra"] else "",
+                } for row in sachet_rows]), hide_index=True)
+                chosen = st.selectbox(
+                    "Inspect CAP XML / AOI",
+                    [row["id"] for row in sachet_rows],
+                    format_func=lambda i: next(
+                        (f"{r['id']} · {r['title'][:70]}" for r in sachet_rows if r["id"] == i), str(i)),
+                    key="sachet_cap_pick")
+                if st.button("Fetch CAP XML + polygon AOI", key="sachet_fetch_cap"):
+                    try:
+                        cap = live_feeds.fetch_sachet_cap(chosen)
+                        aoi = live_feeds.fetch_sachet_aoi_polygon(chosen)
+                        st.markdown(
+                            f"**{html.escape(cap.get('event') or 'CAP alert')}** · "
+                            f"{html.escape(cap.get('severity') or '')} · "
+                            f"sender {html.escape(cap.get('sender') or 'not available')}")
+                        st.caption(cap.get("headline") or "No headline")
+                        st.caption(f"AOI: {cap.get('aoi_summary')}")
+                        if cap.get("geocodes"):
+                            st.caption("LGD / geocodes: " + ", ".join(
+                                f"{g['name']}={g['value']}" for g in cap["geocodes"][:8]))
+                        st.caption(f"Polygon URL: {aoi.get('polygon_url')}")
+                        st.code(aoi.get("preview") or "No polygon preview", language="xml")
+                    except live_feeds.FeedError as exc:
+                        ui_error(str(exc))
+            else:
+                st.caption("No SACHET items returned.")
+        with imd_col:
+            st.subheader("IMD API Gateway + CAP")
+            st.caption("Public IMD CAP RSS, WIS2 OAPI catalogue, and authenticated api.imd.gov.in calls.")
+            try:
+                imd_rows = live_feeds.fetch_imd_cap_rss(limit=10)
+                if imd_rows:
+                    render_df_table(pd.DataFrame([{
+                        "published": row["published"],
+                        "title": row["title"][:110],
+                        "MH": "yes" if row["maharashtra"] else "",
+                    } for row in imd_rows]), hide_index=True)
+                else:
+                    st.caption("IMD CAP RSS is reachable but currently has no active alert items.")
+            except live_feeds.FeedError as exc:
+                ui_error(str(exc))
+            try:
+                collections = live_feeds.fetch_imd_wis2_collections(limit=6)
+                if collections:
+                    with st.expander("IMD WIS2 OAPI collections"):
+                        render_df_table(pd.DataFrame(collections), hide_index=True)
+                else:
+                    st.caption("IMD WIS2 catalogue returned no collections.")
+            except live_feeds.FeedError as exc:
+                st.caption(str(exc))
+            if st.button("Query IMD API Gateway current_wx", key="imd_gateway_btn"):
+                try:
+                    payload = live_feeds.fetch_imd_gateway_current()
+                    data = payload.get("data")
+                    if isinstance(data, list):
+                        st.json({
+                            "endpoint": payload["endpoint"],
+                            "authenticated": payload["authenticated"],
+                            "sample": data[:3],
+                        })
+                    else:
+                        st.json(payload)
+                except live_feeds.FeedError as exc:
+                    ui_error(str(exc))
+
+        meteo_col, gdacs_col = st.columns(2)
+        with meteo_col:
+            st.subheader("Open-Meteo zone forecast")
+            st.caption("3-day forecast for a recorded demo zone. Not written into risk_logs.")
+            zones = data.read("SELECT name, lat, lon FROM zones ORDER BY name")
+            zone_names = [z["name"] for z in zones]
+            pick = st.selectbox("Forecast zone", zone_names, key="open_meteo_zone")
+            chosen_zone = next(z for z in zones if z["name"] == pick)
+            try:
+                forecast = live_feeds.fetch_open_meteo(
+                    chosen_zone["lat"], chosen_zone["lon"], zone_name=pick)
+                metric_tiles((
+                    ("Temp °C", forecast.get("current_temp_c"), TEAL),
+                    ("Precip mm", forecast.get("current_precip_mm"), BLUE),
+                    ("Wind", forecast.get("current_wind"), ORANGE),
+                    ("Humidity %", forecast.get("current_humidity"), STEEL),
+                ))
+                if forecast.get("days"):
+                    render_df_table(pd.DataFrame(forecast["days"]), hide_index=True)
+            except live_feeds.FeedError as exc:
+                ui_error(str(exc))
+        with gdacs_col:
+            st.subheader("GDACS multi-hazard feed")
+            st.caption("RSS multi-hazard events, India-focused when available.")
+            try:
+                gdacs_rows = live_feeds.fetch_gdacs(limit=12, india_focus=True)
+                render_df_table(pd.DataFrame([{
+                    "published": row["published"],
+                    "level": row["alert_level"],
+                    "type": row["event_type"],
+                    "country": row["country"] or row["iso3"],
+                    "title": row["title"][:90],
+                } for row in gdacs_rows]), hide_index=True)
+            except live_feeds.FeedError as exc:
+                ui_error(str(exc))
+
+        with st.expander("USGS earthquakes & NASA FIRMS (also toggleable on Situation Overview map)"):
+            left, right = st.columns(2)
+            with left:
+                st.markdown("**USGS earthquakes (India bbox, 72h)**")
+                try:
+                    quakes = live_feeds.fetch_usgs_earthquakes()
+                    if quakes:
+                        render_df_table(pd.DataFrame([{
+                            "time": row["time"],
+                            "mag": row["mag"],
+                            "place": row["place"],
+                        } for row in quakes[:15]]), hide_index=True)
+                    else:
+                        st.caption("No earthquakes in the India bounding box for the selected window.")
+                except live_feeds.FeedError as exc:
+                    ui_error(str(exc))
+            with right:
+                st.markdown("**NASA FIRMS active fires (Maharashtra AOI)**")
+                try:
+                    fires = live_feeds.fetch_firms_fires()
+                    if fires:
+                        render_df_table(pd.DataFrame([{
+                            "date": row["acq_date"],
+                            "time": row["acq_time"],
+                            "lat": row["lat"],
+                            "lon": row["lon"],
+                            "frp": row["frp"],
+                        } for row in fires[:20]]), hide_index=True)
+                    else:
+                        st.caption("No FIRMS detections in the Maharashtra AOI for the last day.")
+                except live_feeds.FeedError as exc:
+                    ui_error(str(exc))
+
 
 def page_severity():  # PAGE 3: which area is worst
     """Derived severity beside the recorded inputs. The score still comes from data.severity()."""
@@ -1422,6 +1626,40 @@ def page_network():  # PAGE 5: roads, hospitals, stock (every change is an event
                         act(data.set_road, rid.split(":")[0], status, ok="Road updated, plan recalculated")  # event
             else:
                 st.caption("No recorded roads.")
+    with st.container(border=True):
+        st.subheader("OpenRouteService live directions")
+        st.caption("Compares a recorded corridor against a live driving route. "
+                   "This does not change road status or the allocation plan. "
+                   "Requires OPENROUTESERVICE_API_KEY.")
+        if not roads:
+            st.caption("No recorded roads.")
+        else:
+            routable = [r for r in roads
+                        if r.get("a_lat") is not None and r.get("b_lat") is not None]
+            if not routable:
+                st.caption("Road endpoints do not have coordinates.")
+            else:
+                choice = st.selectbox(
+                    "Corridor",
+                    routable,
+                    format_func=lambda r: (
+                        f"{r['id']}: {r['a']} → {r['b']} "
+                        f"(recorded {network_cell(r.get('current_minutes'))} min · {r.get('status')})"),
+                    key="ors_road_pick")
+                if st.button("Request live directions", key="ors_directions_btn"):
+                    try:
+                        route = live_feeds.fetch_ors_directions(
+                            choice["a_lon"], choice["a_lat"], choice["b_lon"], choice["b_lat"])
+                        metric_tiles((
+                            ("Recorded minutes", network_cell(choice.get("current_minutes")), STEEL),
+                            ("Live duration min", route.get("duration_min"), TEAL),
+                            ("Live distance km", route.get("distance_km"), ORANGE),
+                            ("Road status", choice.get("status"), RED if choice.get("status") == "BLOCKED" else TEAL),
+                        ))
+                        if route.get("steps"):
+                            render_df_table(pd.DataFrame(route["steps"]), hide_index=True)
+                    except live_feeds.FeedError as exc:
+                        ui_error(str(exc))
     beds, stock = st.columns(2)
     with beds:
         with st.container(border=True):
