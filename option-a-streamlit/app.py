@@ -1289,7 +1289,7 @@ _DARK_STYLE = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json"
 _PIXELS = DeckString("pixels")
 
 
-def render_deck(layers, height, key):
+def render_deck(layers, height, key, map_style=None):
     """Draw one GIS map inside the EOC map container with latest update timestamp."""
     st.markdown(
         '<div class="saarthi-map-bar">'
@@ -1300,7 +1300,7 @@ def render_deck(layers, height, key):
     st.pydeck_chart(pdk.Deck(layers=layers,
                              initial_view_state=pdk.ViewState(latitude=18.2, longitude=73.4, zoom=6.3),
                              tooltip={"text": "{label}"},
-                             map_provider="carto", map_style=_DARK_STYLE),
+                             map_provider="carto", map_style=map_style or _DARK_STYLE),
                     height=height, key=key)
 
 
@@ -1331,9 +1331,35 @@ def _place_labels(frame, text_column, offset):
                      get_background_color=[255, 255, 255, 230], background_padding=[4, 2, 4, 2], pickable=False)
 
 
+def _satellite_map_style():
+    """Optional MapTiler satellite style; leave the original map as the fallback."""
+    api_key = os.environ.get("MAPTILER_API_KEY", "").strip()
+    if not api_key:
+        try:
+            api_key = str(st.secrets.get("MAPTILER_API_KEY", "")).strip()
+        except (FileNotFoundError, KeyError):
+            pass
+    if not api_key:
+        return None
+    from urllib.parse import quote
+    return "https://api.maptiler.com/maps/hybrid/style.json?key=" + quote(api_key, safe="")
+
+
 def draw_map(layers, height=540, key="map"):  # prominent GIS map with switchable layers
     choices = ["Risk zones", "Roads", "Hospitals", "Supply hubs", "SOS requests", "Shipments", "Rescue tasks"]  # every layer
     shown = st.multiselect("Map Layers Control (Toggle Categories)", choices, default=layers, key=key)  # operator picks which to show
+    # Basemap choice is optional and scoped to Situation Overview only.
+    # All operational overlay layers and other maps are unchanged.
+    selected_map_style = None
+    if key == "ov_map":
+        satellite_style = _satellite_map_style()
+        if satellite_style:
+            basemap = st.radio("Map background", ["Street map", "Satellite imagery"],
+                               horizontal=True, key="ov_basemap_style")
+            if basemap == "Satellite imagery":
+                selected_map_style = satellite_style
+        else:
+            st.caption("Satellite imagery is optional: configure MAPTILER_API_KEY to enable it.")
     deck_layers = []  # the pydeck layers to draw, bottom first
     labels = []  # place names drawn after the symbols
     legend = []
@@ -1419,7 +1445,7 @@ def draw_map(layers, height=540, key="map"):  # prominent GIS map with switchabl
             (BLUE, "Rescue low"),
         ))
     deck_layers.extend(labels)
-    render_deck(deck_layers, height, f"{key}_deck")
+    render_deck(deck_layers, height, f"{key}_deck", map_style=selected_map_style)
     map_legend(legend)
 
 
