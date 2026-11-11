@@ -641,11 +641,334 @@ def seed_demo_data():  # fill an empty database from demo_data.py
     replan("SYSTEM_START", "System started")
 
 
+# ---------------------------------------------------------------------
+# Volunteers: NGO teams and rescue tasks. Additive tables only.
+# ---------------------------------------------------------------------
+VOLUNTEER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ngo_teams(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    name TEXT NOT NULL,
+    lead_name TEXT,
+    lead_role TEXT NOT NULL,
+    home_zone TEXT,
+    focus TEXT,
+    capacity INTEGER NOT NULL,
+    available INTEGER NOT NULL,
+    status TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rescue_tasks(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    title TEXT NOT NULL,
+    zone TEXT NOT NULL,
+    lat REAL NOT NULL,
+    lon REAL NOT NULL,
+    priority TEXT NOT NULL,
+    people INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    detail TEXT
+);
+CREATE TABLE IF NOT EXISTS rescue_assignments(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    team_id INTEGER NOT NULL,
+    volunteers INTEGER NOT NULL,
+    assigned_at TEXT NOT NULL,
+    dispatched_at TEXT,
+    status TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rescue_status_log(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    changed_at TEXT NOT NULL,
+    note TEXT
+);
+"""
+
+RESCUE_STATUSES = ("PENDING", "ASSIGNED", "DISPATCHED", "IN_PROGRESS", "RESCUED", "COMPLETED")
+RESCUE_PRIORITIES = ("Critical", "High", "Moderate", "Low")
+_RESCUE_ORDER = {name: index for index, name in enumerate(RESCUE_STATUSES)}
+
+
+def ensure_volunteer_schema():
+    """Create volunteer tables when missing. Existing tables and rows stay in place."""
+    conn = sqlite3.connect(get_db_path(), timeout=10)
+    try:
+        conn.executescript(VOLUNTEER_SCHEMA)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _clean_text(value, label):
+    text = str(value or "").strip()
+    if not text:
+        raise ActionError(f"{label} is required.")
+    return text
+
+
+def register_ngo_team(name, lead_name, lead_role, home_zone, focus, capacity):
+    """Register one NGO team. Available strength starts at full capacity."""
+    ensure_volunteer_schema()
+    name = _clean_text(name, "Team name")
+    role = _clean_text(lead_role, "Head role")
+    capacity = int(capacity)
+    if capacity < 1:
+        raise ActionError("Volunteer capacity must be at least 1.")
+    zone = _clean_text(home_zone, "Home zone")
+    if not read("SELECT name FROM zones WHERE name=:n", n=zone):
+        raise ActionError(f"{zone} is not a recorded zone.")
+    team_id = write(
+        """INSERT INTO ngo_teams(created_at, name, lead_name, lead_role, home_zone, focus,
+              capacity, available, status)
+           VALUES (:t, :n, :lead, :role, :zone, :focus, :cap, :cap, 'AVAILABLE')""",
+        t=now(), n=name, lead=str(lead_name or "").strip(), role=role, zone=zone,
+        focus=str(focus or "").strip(), cap=capacity)
+    event("VOLUNTEER_TEAM", f"NGO team registered: {name} ({capacity} volunteers)", do_replan=False)
+    return team_id
+
+
+def create_rescue_task(title, zone, priority, people, detail=""):
+    """Record a rescue task at the affected zone. Status starts at PENDING."""
+    ensure_volunteer_schema()
+    title = _clean_text(title, "Task title")
+    zone = _clean_text(zone, "Affected zone")
+    if priority not in RESCUE_PRIORITIES:
+        raise ActionError("Choose a recorded priority.")
+    people = int(people)
+    if people < 1:
+        raise ActionError("People requiring assistance must be at least 1.")
+    with transaction():
+        spots = read("SELECT lat, lon FROM zones WHERE name=:n", n=zone)
+        if not spots or spots[0]["lat"] is None or spots[0]["lon"] is None:
+            raise ActionError(f"{zone} has no recorded location.")
+        placed = read("SELECT COUNT(*) AS n FROM rescue_tasks WHERE zone=:z", z=zone)[0]["n"]
+        lat = float(spots[0]["lat"])
+        lon = float(spots[0]["lon"]) + 0.045 * (int(placed) + 1)
+        stamp = now()
+        task_id = write(
+            """INSERT INTO rescue_tasks(created_at, title, zone, lat, lon, priority, people, status, detail)
+               VALUES (:t, :title, :zone, :lat, :lon, :priority, :people, 'PENDING', :detail)""",
+            t=stamp, title=title, zone=zone, lat=lat, lon=lon, priority=priority,
+            people=people, detail=str(detail or "").strip())
+        write("""INSERT INTO rescue_status_log(task_id, status, changed_at, note)
+                 VALUES (:i, 'PENDING', :t, :n)""",
+              i=task_id, t=stamp, n="Rescue task recorded.")
+    event("RESCUE_TASK", f"Rescue task #{task_id} recorded in {zone}", do_replan=False)
+    return task_id
+
+
+def list_ngo_teams():
+    ensure_volunteer_schema()
+    return read("SELECT * FROM ngo_teams ORDER BY id DESC")
+
+
+def list_rescue_tasks():
+    ensure_volunteer_schema()
+    return read("SELECT * FROM rescue_tasks ORDER BY id DESC")
+
+
+def list_rescue_assignments():
+    ensure_volunteer_schema()
+    return read("""SELECT a.*, t.title, t.zone, t.status AS task_status, n.name AS team_name
+                   FROM rescue_assignments a
+                   JOIN rescue_tasks t ON t.id = a.task_id
+                   JOIN ngo_teams n ON n.id = a.team_id
+                   ORDER BY a.id DESC""")
+
+
+def rescue_status_log(task_id=None):
+    ensure_volunteer_schema()
+    if task_id is None:
+        return read("SELECT * FROM rescue_status_log ORDER BY id DESC")
+    return read("SELECT * FROM rescue_status_log WHERE task_id=:i ORDER BY id", i=int(task_id))
+
+
+def assignable_teams():
+    ensure_volunteer_schema()
+    return read("""SELECT * FROM ngo_teams
+                   WHERE status='AVAILABLE' AND available > 0
+                   ORDER BY name""")
+
+
+def open_rescue_tasks():
+    """Tasks that can still take a team. Completed and rescued work stays closed."""
+    ensure_volunteer_schema()
+    return read("""SELECT * FROM rescue_tasks
+                   WHERE status IN ('PENDING', 'ASSIGNED', 'DISPATCHED', 'IN_PROGRESS')
+                   ORDER BY id""")
+
+
+def dispatchable_assignments():
+    ensure_volunteer_schema()
+    return read("""SELECT a.*, t.title, t.zone, t.status AS task_status, n.name AS team_name
+                   FROM rescue_assignments a
+                   JOIN rescue_tasks t ON t.id = a.task_id
+                   JOIN ngo_teams n ON n.id = a.team_id
+                   WHERE a.status='ASSIGNED' AND t.status != 'COMPLETED'
+                   ORDER BY a.id""")
+
+
+def progressable_tasks():
+    ensure_volunteer_schema()
+    return read("""SELECT * FROM rescue_tasks
+                   WHERE status IN ('DISPATCHED', 'IN_PROGRESS', 'RESCUED')
+                   ORDER BY id""")
+
+
+def next_rescue_statuses(status):
+    """Forward rescue states an operator can set after dispatch."""
+    rank = _RESCUE_ORDER.get(status, -1)
+    return [name for name in ("IN_PROGRESS", "RESCUED", "COMPLETED") if _RESCUE_ORDER[name] > rank]
+
+
+def rescue_task_markers():
+    """Locations for the operations map. Reads volunteer rows only."""
+    ensure_volunteer_schema()
+    return read("""SELECT id, title, zone, lat, lon, priority, people, status
+                   FROM rescue_tasks ORDER BY id""")
+
+
+def volunteer_dashboard():
+    ensure_volunteer_schema()
+    teams = read("SELECT capacity, available, status FROM ngo_teams")
+    tasks = read("SELECT status FROM rescue_tasks")
+    return {
+        "teams": len(teams),
+        "volunteers": sum(int(row["capacity"] or 0) for row in teams),
+        "available": sum(int(row["available"] or 0) for row in teams),
+        "active_tasks": sum(1 for row in tasks if row["status"] != "COMPLETED"),
+        "deployed": sum(1 for row in teams if row["status"] == "DEPLOYED"),
+        "completed": sum(1 for row in tasks if row["status"] == "COMPLETED"),
+    }
+
+
+def assign_rescue_team(task_id, team_id, volunteers):
+    """Assign volunteers from an available team. This does not dispatch them."""
+    ensure_volunteer_schema()
+    volunteers = int(volunteers)
+    if volunteers < 1:
+        raise ActionError("Assign at least 1 volunteer.")
+    with transaction():
+        tasks = read("SELECT * FROM rescue_tasks WHERE id=:i", i=int(task_id))
+        if not tasks:
+            raise ActionError("Rescue task was not found.")
+        task = tasks[0]
+        if task["status"] in ("RESCUED", "COMPLETED"):
+            raise ActionError("This rescue task is no longer open for assignment.")
+        teams = read("SELECT * FROM ngo_teams WHERE id=:i", i=int(team_id))
+        if not teams:
+            raise ActionError("NGO team was not found.")
+        team = teams[0]
+        if team["status"] != "AVAILABLE":
+            raise ActionError(f"{team['name']} is deployed. Choose an available team.")
+        available = int(team["available"])
+        if volunteers > available:
+            raise ActionError(
+                f"{team['name']} has {available} volunteers available. "
+                f"That is below the {volunteers} requested.")
+        already = read("""SELECT id FROM rescue_assignments
+                          WHERE task_id=:task AND team_id=:team""",
+                       task=task["id"], team=team["id"])
+        if already:
+            raise ActionError(f"{team['name']} is already assigned to this rescue task.")
+        write("UPDATE ngo_teams SET available=:a WHERE id=:i",
+              a=available - volunteers, i=team["id"])
+        write("""INSERT INTO rescue_assignments(task_id, team_id, volunteers, assigned_at, dispatched_at, status)
+                 VALUES (:task, :team, :n, :t, NULL, 'ASSIGNED')""",
+              task=task["id"], team=team["id"], n=volunteers, t=now())
+        if task["status"] == "PENDING":
+            stamp = now()
+            write("UPDATE rescue_tasks SET status='ASSIGNED' WHERE id=:i", i=task["id"])
+            write("""INSERT INTO rescue_status_log(task_id, status, changed_at, note)
+                     VALUES (:i, 'ASSIGNED', :t, :n)""",
+                  i=task["id"], t=stamp,
+                  n=f"Assigned {volunteers} volunteers from {team['name']}.")
+    event("VOLUNTEER_ASSIGNED",
+          f"Assigned {team['name']} ({volunteers}) to rescue task #{task['id']}",
+          do_replan=False)
+
+
+def dispatch_rescue_assignment(assignment_id):
+    """Operator dispatch. Assignment alone never sets this state."""
+    ensure_volunteer_schema()
+    with transaction():
+        rows = read("SELECT * FROM rescue_assignments WHERE id=:i", i=int(assignment_id))
+        if not rows:
+            raise ActionError("Assignment was not found.")
+        row = rows[0]
+        if row["status"] != "ASSIGNED":
+            raise ActionError("This assignment is already dispatched.")
+        tasks = read("SELECT * FROM rescue_tasks WHERE id=:i", i=row["task_id"])
+        if not tasks:
+            raise ActionError("Rescue task was not found.")
+        task = tasks[0]
+        if task["status"] == "COMPLETED":
+            raise ActionError("This rescue task is already completed.")
+        team = read("SELECT * FROM ngo_teams WHERE id=:i", i=row["team_id"])[0]
+        stamp = now()
+        write("""UPDATE rescue_assignments SET status='DISPATCHED', dispatched_at=:t WHERE id=:i""",
+              t=stamp, i=row["id"])
+        write("UPDATE ngo_teams SET status='DEPLOYED' WHERE id=:i", i=team["id"])
+        if task["status"] in ("PENDING", "ASSIGNED"):
+            write("UPDATE rescue_tasks SET status='DISPATCHED' WHERE id=:i", i=task["id"])
+            write("""INSERT INTO rescue_status_log(task_id, status, changed_at, note)
+                     VALUES (:i, 'DISPATCHED', :t, :n)""",
+                  i=task["id"], t=stamp, n=f"Dispatched {team['name']}.")
+    event("VOLUNTEER_DISPATCHED",
+          f"Dispatched {team['name']} on rescue task #{task['id']}",
+          do_replan=False)
+
+
+def _release_task_volunteers(task_id):
+    """Return assigned strength when a rescue is completed. Call inside a transaction."""
+    for row in read("SELECT * FROM rescue_assignments WHERE task_id=:i", i=int(task_id)):
+        team = read("SELECT * FROM ngo_teams WHERE id=:i", i=row["team_id"])[0]
+        available = min(int(team["capacity"]), int(team["available"]) + int(row["volunteers"]))
+        still = read("""SELECT COUNT(*) AS n
+                        FROM rescue_assignments a
+                        JOIN rescue_tasks t ON t.id = a.task_id
+                        WHERE a.team_id=:team AND a.dispatched_at IS NOT NULL
+                          AND t.status IN ('DISPATCHED', 'IN_PROGRESS', 'RESCUED')
+                          AND t.id != :task""",
+                     team=row["team_id"], task=int(task_id))[0]["n"]
+        write("UPDATE ngo_teams SET available=:a, status=:s WHERE id=:i",
+              a=available, s="DEPLOYED" if still else "AVAILABLE", i=team["id"])
+
+
+def update_rescue_progress(task_id, status):
+    """Move a dispatched rescue forward. Dispatch itself stays a separate action."""
+    ensure_volunteer_schema()
+    status = str(status or "").strip()
+    if status not in ("IN_PROGRESS", "RESCUED", "COMPLETED"):
+        raise ActionError("Choose IN_PROGRESS, RESCUED, or COMPLETED.")
+    with transaction():
+        tasks = read("SELECT * FROM rescue_tasks WHERE id=:i", i=int(task_id))
+        if not tasks:
+            raise ActionError("Rescue task was not found.")
+        task = tasks[0]
+        if _RESCUE_ORDER[task["status"]] < _RESCUE_ORDER["DISPATCHED"]:
+            raise ActionError("Dispatch the assigned team before updating rescue progress.")
+        if _RESCUE_ORDER[status] <= _RESCUE_ORDER[task["status"]]:
+            raise ActionError("Rescue progress only moves forward.")
+        if status == "COMPLETED":
+            _release_task_volunteers(task["id"])
+        stamp = now()
+        write("UPDATE rescue_tasks SET status=:s WHERE id=:i", s=status, i=task["id"])
+        write("""INSERT INTO rescue_status_log(task_id, status, changed_at, note)
+                 VALUES (:i, :s, :t, :n)""",
+              i=task["id"], s=status, t=stamp, n=f"Status set to {status}.")
+    event("RESCUE_PROGRESS", f"Rescue task #{task['id']} is {status}", do_replan=False)
+
+
 def init_db():  # create tables; add demo data if empty
     conn = sqlite3.connect(get_db_path())
     conn.executescript(SCHEMA)
     from intake_agent import INTAKE_SCHEMA  # new table only; existing tables are not dropped
     conn.executescript(INTAKE_SCHEMA)
+    conn.executescript(VOLUNTEER_SCHEMA)
     conn.commit()
     conn.close()
     if read("SELECT COUNT(*) AS n FROM zones")[0]["n"] == 0:
